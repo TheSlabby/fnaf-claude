@@ -350,6 +350,15 @@ class NightIntroScene(Scene):
 
 JUMPSCARE_TIME = 1.25
 
+# Where a room sounds like it is from the office: (stereo pan -1..1, loudness).
+ROOM_AUDIO = {
+    "1A": (0.0, 0.22), "1B": (0.0, 0.3), "5": (-0.6, 0.28), "1C": (-0.4, 0.32),
+    "7": (0.6, 0.3), "6": (0.5, 0.35), "2A": (-0.5, 0.5), "3": (-0.65, 0.62),
+    "2B": (-0.8, 0.78), "LDOOR": (-0.92, 1.0), "4A": (0.5, 0.5), "4B": (0.8, 0.78),
+    "RDOOR": (0.92, 1.0), "OFFICE": (0.0, 1.0),
+}
+SIDE_PAN = {"L": -0.85, "R": 0.85}
+
 
 class NightScene(Scene):
     def __init__(self, game, night, ai_levels=None):
@@ -460,9 +469,9 @@ class NightScene(Scene):
         if self.cam_target or self.cam_anim > 0:
             return
         if self.st.toggle_door(side):
-            self.sounds.play("door", 0.8)
+            self.sounds.play("door", 0.8, pan=SIDE_PAN[side] * 0.7)
         else:
-            self.sounds.play("error", 0.6)
+            self.sounds.play("error", 0.6, pan=SIDE_PAN[side] * 0.5)
 
     def light(self, side):
         if self.cam_target or self.cam_anim > 0:
@@ -566,7 +575,7 @@ class NightScene(Scene):
                 self.sting_seen[side] = False
             elif st.lights[side] and not self.sting_seen[side]:
                 self.sting_seen[side] = True
-                self.sounds.play("sting", 0.9)
+                self.sounds.play("sting", 0.9, pan=SIDE_PAN[side] * 0.4)
 
         # Loops tied to the cameras.
         if self.cam_anim > 0.5 and not st.power_out:
@@ -670,20 +679,23 @@ class NightScene(Scene):
                 self.cam_fx.kick(6)
                 self.sounds.play("static_burst", 0.5)
             if who in ("Bonnie", "Chica"):
-                if dst in ("LDOOR", "RDOOR"):
-                    self.sounds.play("footsteps", 0.8)
-                elif src in ("LDOOR", "RDOOR"):
-                    self.sounds.play("footsteps", 0.45)
-                elif dst in ("2A", "2B", "3", "4A", "4B"):
-                    self.sounds.play("footsteps", 0.25)
+                # Footsteps you can place by ear: louder and more to one side
+                # the closer they get.
+                near = dst if dst in ROOM_AUDIO else src
+                pan, gain = ROOM_AUDIO.get(near, (0.0, 0.3))
+                if src in ("LDOOR", "RDOOR"):
+                    pan, gain = ROOM_AUDIO[src][0], 0.55
+                if gain >= 0.45:
+                    self.sounds.play("footsteps", 0.85 * gain, pan=pan)
         elif name == "laugh":
-            self.sounds.play("laugh", 0.7)
+            pan, gain = ROOM_AUDIO.get(st.freddy.loc, (0.0, 0.5))
+            self.sounds.play("laugh", 0.35 + 0.5 * gain, pan=pan * 0.8)
         elif name == "enter_office":
-            self.sounds.play("groan", 0.25)
+            self.sounds.play("groan", 0.25, pan=SIDE_PAN.get(data.get("side"), 0.0) * 0.5)
         elif name == "foxy_run":
-            self.sounds.play("run", 0.9 if (st.cams_up and st.cam == "2A") else 0.6)
+            self.sounds.play("run", 0.9 if (st.cams_up and st.cam == "2A") else 0.65, pan=-0.6)
         elif name == "foxy_bang":
-            self.sounds.play("bang", 0.9)
+            self.sounds.play("bang", 0.95, pan=-0.85)
         elif name == "golden":
             self.sounds.play("deep", 0.6)
         elif name == "power_out":

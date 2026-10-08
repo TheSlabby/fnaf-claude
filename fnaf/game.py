@@ -131,7 +131,7 @@ class Game:
                 pass
         if args is not None and args.mute and pygame.mixer.get_init():
             pygame.mixer.quit()  # SoundBank falls back to silent mode
-        flags = pygame.SCALED
+        flags = pygame.SCALED | pygame.RESIZABLE
         if args is not None and args.fullscreen:
             flags |= pygame.FULLSCREEN
         self.screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), flags)
