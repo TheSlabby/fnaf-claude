@@ -385,6 +385,7 @@ class NightScene(Scene):
         self.view = pygame.Surface((SCREEN_W, SCREEN_H)).convert()
         self.cam_fx = CamGlitch()
         self.js_ghosts = {}
+        self.js_bg = None
         self.halluc_timer = random.uniform(40, 160)
         self.halluc = 0.0
         self.halluc_face = None
@@ -798,7 +799,7 @@ class NightScene(Scene):
                       bold=True)
         else:
             self.static(screen, 255 if self.switch_static > 0.1 else 110 if self.switch_static > 0 else
-                        random.randint(38, 70))
+                        random.randint(16, 32))
         if self.itsme and self.itsme[0] == cam and self.glitch <= 0:
             draw_text(screen, "IT'S ME", (SCREEN_W // 2 + random.randint(-3, 3), SCREEN_H // 2 - 60), 110,
                       (210, 210, 205), anchor="center", alpha=random.randint(150, 220))
@@ -824,6 +825,18 @@ class NightScene(Scene):
     # Where each killer lunges in from (screen x at the start of the lunge).
     JS_FROM = {"Bonnie": 330, "Chica": 950, "Freddy": 800, "Foxy": -260, "Golden": SCREEN_W // 2}
 
+    def _scaled(self, frame, scale):
+        """Jumpscare frame at a quantised scale (cached: no per-frame rescaling)."""
+        q = round(scale * 20) / 20.0
+        key = (id(frame), q)
+        img = self.js_ghosts.get(key)
+        if img is None:
+            src = frame.surface
+            img = src if q == 1.0 else pygame.transform.scale(
+                src, (int(src.get_width() * q), int(src.get_height() * q)))
+            self.js_ghosts[key] = img
+        return img, q
+
     def _ghost(self, surface, color):
         key = (id(surface), color)
         g = self.js_ghosts.get(key)
@@ -838,12 +851,15 @@ class NightScene(Scene):
         frames = self.assets.jumpscares.get(who)
         power_out = st.power_out is not None
 
-        # Background: the office (or darkness), shaking with the hit.
+        # Background: a darkened snapshot of the office (or darkness), shaking with the hit.
         if power_out or who == "Golden":
             screen.fill((0, 0, 0))
         else:
-            self.draw_office(screen)
-            screen.fill((105, 84, 84), special_flags=pygame.BLEND_RGB_MULT)
+            if self.js_bg is None:
+                self.draw_office(screen)
+                screen.fill((105, 84, 84), special_flags=pygame.BLEND_RGB_MULT)
+                self.js_bg = screen.copy()
+            screen.blit(self.js_bg, (0, 0))
         if not frames:
             return
 
@@ -861,9 +877,9 @@ class NightScene(Scene):
         cx = start_x + (SCREEN_W // 2 - start_x) * e
         cy = SCREEN_H * 0.47 + (1 - e) * 150
         if who == "Foxy":
-            scale = 0.35 + 0.75 * e
+            scale = 0.4 + 0.8 * e
         else:
-            scale = 0.72 + 0.36 * e
+            scale = 0.75 + 0.45 * e
         if k >= 1:
             # Thrashing: jitter in size and position, fading out a little.
             amp = 1.0 - 0.35 * min(1.0, (t - lunge) / JUMPSCARE_TIME)
@@ -873,12 +889,14 @@ class NightScene(Scene):
             screen.scroll(random.randint(-10, 10), random.randint(-6, 6))
         frame = frames[int(t * 15) % len(frames)]
         x, y, img = self._blit_scaled(screen, frame, cx, cy, scale)
+        q = img.get_width() / float(frame.surface.get_width())
+        add_glows(screen, [(gx * q + x, gy * q + y, gr * q, gc) for gx, gy, gr, gc in frame.glows])
 
-        # Colour-split ghosts that make the image tear.
-        if k >= 1 and random.random() < 0.7:
-            for color, dx in (((150, 0, 0), random.randint(6, 16)), ((0, 70, 110), -random.randint(6, 16))):
-                ghost = self._ghost(img, color) if img is frame.surface else tinted(img, color)
-                screen.blit(ghost, (x + dx, y + random.randint(-4, 4)), special_flags=pygame.BLEND_RGB_ADD)
+        # Colour-split ghosts that make the image tear now and then.
+        if k >= 1 and random.random() < 0.35:
+            for color, dx in (((80, 0, 0), random.randint(6, 14)), ((0, 30, 55), -random.randint(6, 14))):
+                screen.blit(self._ghost(img, color), (x + dx, y + random.randint(-4, 4)),
+                            special_flags=pygame.BLEND_RGB_ADD)
         # Impact flash.
         if t < 0.07:
             flash = pygame.Surface((SCREEN_W, SCREEN_H))
@@ -889,11 +907,9 @@ class NightScene(Scene):
             self.static(screen, random.randint(30, 70))
 
     def _blit_scaled(self, screen, frame, cx, cy, scale):
-        img = frame.surface
-        if abs(scale - 1.0) > 0.005:
-            img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
-        x = int(cx - frame.anchor[0] * scale)
-        y = int(cy - frame.anchor[1] * scale)
+        img, q = self._scaled(frame, scale)
+        x = int(cx - frame.anchor[0] * q)
+        y = int(cy - frame.anchor[1] * q)
         screen.blit(img, (x, y))
         return x, y, img
 

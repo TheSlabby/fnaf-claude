@@ -4,13 +4,16 @@ SCREEN_W, SCREEN_H = 1280, 720
 FPS = 60
 TITLE = "Five Nights at Freddy's - fan remake"
 
-# Time. The original game uses roughly 89 real seconds per in-game hour.
-HOUR_SECONDS = 75.0
+# Time. The original uses 89 real seconds per in-game hour (12 AM is one
+# second longer), so a night is just under 9 minutes.
+HOUR_SECONDS = 89.0
 NIGHT_HOURS = 6
 
 # Power, in percent per second. Usage bars = 1 + doors + lights + camera.
+# As in the original: 0.1% per second per bar, plus an extra 0.1% every
+# 6/5/4/3 seconds on nights 2/3/4/5+ (custom night counts as 5+).
 DRAIN_PER_USAGE = 0.1
-NIGHT_PASSIVE_DRAIN = {1: 0.0, 2: 0.01, 3: 0.018, 4: 0.026, 5: 0.034, 6: 0.04, 7: 0.04}
+NIGHT_PASSIVE_DRAIN = {1: 0.0, 2: 0.1 / 6, 3: 0.1 / 5, 4: 0.1 / 4, 5: 0.1 / 3, 6: 0.1 / 3, 7: 0.1 / 3}
 
 # Office panorama is wider than the screen; the player pans across it.
 OFFICE_W = 1920

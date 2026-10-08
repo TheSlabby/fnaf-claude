@@ -8,7 +8,7 @@ import pygame
 
 from .settings import FPS, SCREEN_H, SCREEN_W, TITLE
 from .effects import PanoramaWarp, make_tablet
-from .util import make_noise_frames, make_scanlines, make_vignette
+from .util import make_light_mask, make_noise_frames, make_scanlines, make_vignette
 
 if getattr(sys, "frozen", False):
     # Packaged with PyInstaller: keep the save next to the executable, not in
@@ -17,6 +17,24 @@ if getattr(sys, "frozen", False):
 else:
     _GAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAVE_PATH = os.path.join(_GAME_DIR, "save.json")
+
+
+def grime(sprite, light=1.0):
+    """Light a jumpscare sprite like the original's renders: lit from the
+    front, falling off into shadow, with a grainy, dirty finish."""
+    surf = sprite.surface
+    w, h = surf.get_size()
+    ax, ay = sprite.anchor
+    lights = [(ax, ay + h * 0.06, w * 0.62, h * 0.5, (int(210 * light), int(200 * light), int(190 * light)))]
+    mask = make_light_mask(w, h, (58, 52, 54), lights)
+    grain = make_noise_frames(1, w, h, pixel=2, contrast=0.35)[0]
+    grain.fill((70, 70, 70), special_flags=pygame.BLEND_RGB_MULT)
+    grain.fill((185, 185, 185), special_flags=pygame.BLEND_RGB_ADD)
+    out = surf.copy()
+    out.blit(mask, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+    out.blit(grain, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+    sprite.surface = out
+    return sprite
 
 
 class Assets:
@@ -77,10 +95,10 @@ class Assets:
         for name, kw in js.items():
             frames = []
             for mouth in (1.0, 0.72):
-                frames.append(rc(name, 230, body=False, mouth=mouth, **kw))
+                frames.append(grime(rc(name, 250, body=False, mouth=mouth, **kw)))
                 yield
             self.jumpscares[name] = frames
-        self.jumpscares["Golden"] = [rc("Golden", 250, body=False, mouth=0.15, eyes="none")]
+        self.jumpscares["Golden"] = [grime(rc("Golden", 270, body=False, mouth=0.15, eyes="none"), 0.8)]
         yield
         self.menu_faces = [
             rc("Freddy", 165, body=False, eyes="normal"),
