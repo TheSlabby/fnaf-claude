@@ -90,9 +90,11 @@ def make_tablet():
 
 
 def draw_tablet(screen, tablet, p):
-    """Monitor rising (p: 0 hidden .. 1 covering the screen)."""
+    """Monitor rising (p: 0 hidden .. 1 covering the screen).
+
+    Returns the rect of the tablet's screen (or None when hidden)."""
     if p <= 0:
-        return
+        return None
     e = 1 - (1 - p) ** 2
     w = int(tablet.get_width() * (0.8 + 0.2 * e))
     h = int(tablet.get_height() * (0.55 + 0.45 * e))
@@ -100,6 +102,9 @@ def draw_tablet(screen, tablet, p):
     x = (SCREEN_W - w) // 2
     y = int(SCREEN_H - 20 - (SCREEN_H - 20 + (h - SCREEN_H) // 2) * e) + int((1 - e) * 60)
     screen.blit(img, (x, y))
+    sx, sy = w / tablet.get_width(), h / tablet.get_height()
+    return pygame.Rect(x + int(44 * sx), y + int(40 * sy),
+                       int((tablet.get_width() - 88) * sx), int((tablet.get_height() - 80) * sy))
 
 
 def tinted(surface, color):

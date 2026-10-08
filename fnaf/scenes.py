@@ -730,7 +730,12 @@ class NightScene(Scene):
         cams_visible = self.cam_anim >= 1.0
         if not cams_visible:
             self.draw_office(screen)
-            draw_tablet(screen, self.assets.tablet, self.cam_anim)
+            tab = draw_tablet(screen, self.assets.tablet, self.cam_anim)
+            if tab is not None and self.cam_anim > 0.45:
+                # The screen flickers on as the tablet comes up.
+                screen.set_clip(tab.clip(screen.get_rect()))
+                self.static(screen, int(110 * (self.cam_anim - 0.45) / 0.55))
+                screen.set_clip(None)
         else:
             self.draw_cams(screen)
 
