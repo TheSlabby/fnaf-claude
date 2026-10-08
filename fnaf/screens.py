@@ -281,7 +281,7 @@ def _para(surf, runs, x, y, w, face, size, color, lead=None, justify=True, inden
 # Paper, creases, ink
 # ---------------------------------------------------------------------------
 
-def _paper(w, h, base, rng, edge=(160, 130, 80), edge_w=46, blotch=1.0):
+def _paper(w, h, base, rng, edge=(172, 148, 104), edge_w=46, blotch=1.0):
     """Paper texture: base colour, fibres, blotches and darker, yellowed edges."""
     surf = pygame.Surface((w, h))
     surf.fill(base)
@@ -347,17 +347,17 @@ def _wrinkles(surf, rect, rng, count, strength=0.6):
         _crease(surf, a, b, rng, strength * rng.uniform(0.4, 1.0), jitter=0.8, spread=4)
 
 
-def _ragged_edges(surf, rect, rng, color=BLACK, depth=2.2, step=5):
+def _ragged_edges(surf, rect, rng, color=BLACK, depth=1.6, step=7):
     """Nibble tiny chips out of a paper's edges (drawn in the background colour)."""
     x, y, w, h = rect
     for edge in range(4):
         n = int((w if edge < 2 else h) / step)
         for i in range(n):
-            if rng.random() < 0.5:
+            if rng.random() < 0.7:
                 continue
             t = i * step + rng.uniform(0, step)
-            d = rng.uniform(0.4, 1.0) * depth
-            s = rng.uniform(2, 6)
+            d = rng.uniform(0.3, 1.0) * depth
+            s = rng.uniform(3, 9)
             if edge == 0:
                 pts = [(x + t - s, y - 1), (x + t + s, y - 1), (x + t, y + d)]
             elif edge == 1:
@@ -514,7 +514,7 @@ def _grain(surf, rng, lo=214):
 # ===========================================================================
 
 NEWS_INK = (30, 27, 24)
-NEWS_PAPER = (226, 216, 186)
+NEWS_PAPER = (232, 225, 200)
 
 _ART1_HEAD = "Local Pizzeria Reopens Under New Management"
 _ART1_DECK = "New owners promise a “fresh start” for a family favorite"
@@ -588,23 +588,23 @@ def _stage_photo(w, h, rng):
         sx, sy = rng.uniform(10, pw - 10), rng.uniform(10, ph * 0.55)
         pygame.draw.polygon(surf, (210, 196, 120), _star_pts(sx, sy, rng.uniform(7, 13), rot=rng.uniform(0, 1)))
     # stage floor
-    fy = int(ph * 0.83)
+    fy = int(ph * 0.86)
     pygame.draw.rect(surf, (120, 92, 70), (0, fy, pw, ph - fy))
     pygame.draw.rect(surf, (70, 50, 40), (0, fy, pw, 6))
-    sc = ph / 7.6
-    head_y = 3.1 * sc + 10
-    cast = (("Bonnie", 0.2, 0.92, 0), ("Chica", 0.8, 0.94, 6), ("Freddy", 0.5, 1.04, 10))
+    sc = ph / 6.7
+    head_y = 2.75 * sc
+    cast = (("Bonnie", 0.19, 0.95, 0), ("Chica", 0.81, 0.97, 8), ("Freddy", 0.5, 1.05, 14))
     for name, fx, k, dy in cast:
         spr = characters.render_character(name, max(4, int(sc * k)), ss=1, eyes="normal", prop=True)
         spr.blit(surf, (pw * fx, head_y + dy))
     # camera flash: bright on the band, dark falling off behind
-    _light(surf, (70, 66, 64), [(pw * 0.5, ph * 0.42, pw * 0.75, ph * 0.75, (220, 220, 220))], q=2)
+    _light(surf, (64, 62, 62), [(pw * 0.5, ph * 0.45, pw * 0.8, ph * 0.85, (235, 235, 235))], q=2)
     lum = _luma(surf)
-    lum = lum.translate(_curve(lambda v: clamp((v - 0.08) * 1.35, 0, 1) ** 0.9))
+    lum = lum.translate(_curve(lambda v: clamp((v - 0.05) * 1.55, 0, 1) ** 0.72))
     dots = _halftone(lum, pw, ph, period=10, soft=3.0)
     soft = _luma(_soften(_grey_surface(lum, (pw, ph)), 0.5))
-    mix = _mix_bytes(dots, soft, 0.42)
-    img = _grey_surface(mix, (pw, ph), dark=(20, 20, 20), light=(250, 250, 250))
+    mix = _mix_bytes(dots, soft, 0.4)
+    img = _grey_surface(mix, (pw, ph), dark=(26, 26, 26), light=(250, 250, 250))
     return pygame.transform.smoothscale(img, (w, h))
 
 
@@ -748,7 +748,7 @@ def newspaper():
     pygame.draw.circle(ring, (130, 90, 40, 14), (cxr, cyr), 56)
     page.blit(_soften(ring, 0.5), (0, 0))
     # dim, uneven light, a little warm
-    _light(page, (150, 138, 120), [(PW * 0.52, PH * 0.45, PW * 0.78, PH * 0.95, (120, 120, 116))])
+    _light(page, (168, 158, 140), [(PW * 0.52, PH * 0.45, PW * 0.8, PH * 0.98, (100, 100, 98))])
     _grain(page, rng, 226)
     out = pygame.Surface((W, H))
     out.fill(BLACK)
@@ -847,10 +847,10 @@ def _check_card(kind, rng):
     big.fill(CHECK_PAPER)
     pen = Pen(big, 0, 0, S)
     pen.hgrad(0, 0, cw, ch, (210, 228, 212), (194, 218, 214))
-    pale = lerp_color(CHECK_PAPER, CHECK_INK, 0.13)
+    pale = lerp_color(CHECK_PAPER, CHECK_INK, 0.17)
     _guilloche(big, (14, 14, cw - 28, ch - 28), pale, rng, S)
-    _rosette(big, cw * 0.56, ch * 0.5, 120, lerp_color(CHECK_PAPER, CHECK_INK, 0.17), S)
-    _rosette(big, cw * 0.56, ch * 0.5, 70, lerp_color(CHECK_PAPER, CHECK_INK, 0.2), S, k=5, petals=14)
+    _rosette(big, cw * 0.56, ch * 0.5, 124, lerp_color(CHECK_PAPER, CHECK_INK, 0.24), S)
+    _rosette(big, cw * 0.56, ch * 0.5, 72, lerp_color(CHECK_PAPER, CHECK_INK, 0.28), S, k=5, petals=14)
     # border
     pen.rect(CHECK_INK, 8, 8, cw - 16, ch - 16, width=2.5)
     pen.rect(lerp_color(CHECK_PAPER, CHECK_INK, 0.5), 14, 14, cw - 28, ch - 28, width=1)
@@ -973,18 +973,18 @@ def _pink_slip(rng):
     field("DATE:", 560, 192, 268, "NOV. 16")
     field("POSITION:", 32, 232, 796, "Security Guard, Night Shift (12 AM - 6 AM)", size=20)
     _text(big, "REASON FOR TERMINATION:", (32, 270), "sans", 12, red, bold=True, anchor="bottomleft", scale=S)
-    for y in (300, 334, 368):
+    for y in (300, 334):
         pen.line(red, (32, y), (cw - 32, y), 1)
     _text(big, "Tampering with the animatronics, general", (40, 298), "mono", 22, TYPE_INK, bold=True,
           anchor="bottomleft", scale=S)
     _text(big, "unprofessionalism, odor.", (40, 332), "mono", 22, TYPE_INK, bold=True, anchor="bottomleft", scale=S)
     # checkboxes
     for i, (label, ticked) in enumerate((("Attendance", False), ("Conduct", True), ("Hygiene", True))):
-        x = 470 + i * 128
-        pen.rect(red, x, 352 - 2, 13, 13, width=1.2)
-        _text(big, label, (x + 19, 366), "sans", 12, red, anchor="bottomleft", scale=S)
+        x = 32 + i * 128
+        pen.rect(red, x, 352, 13, 13, width=1.2)
+        _text(big, label, (x + 19, 367), "sans", 12, red, anchor="bottomleft", scale=S)
         if ticked:
-            _text(big, "X", (x + 6.5, 357), "mono", 18, TYPE_INK, bold=True, anchor="center", scale=S)
+            _text(big, "X", (x + 6.5, 359), "mono", 18, TYPE_INK, bold=True, anchor="center", scale=S)
     # signature
     pen.line(red, (cw - 360, 430), (cw - 32, 430), 1)
     _text(big, "MANAGEMENT", (cw - 196, 436), "sans", 11, red, bold=True, anchor="midtop", scale=S)
@@ -994,13 +994,13 @@ def _pink_slip(rng):
     card = pygame.transform.smoothscale(big, (cw, ch))
     _multiply_noise(card, rng, [(60, 228), (2, 236)])
     st = _stamp([("EFFECTIVE", 0.3), ("IMMEDIATELY", 0.3)], (176, 30, 40), (260, 104), rng, angle=9)
-    card.blit(st, st.get_rect(center=(cw - 200, 290)))
+    card.blit(st, st.get_rect(center=(cw - 176, 366)))
     return card
 
 
 def _shift_log(rng):
     S = 2
-    cw, ch = 880, 440
+    cw, ch = 880, 470
     paper = (226, 210, 168)
     ink = (60, 52, 40)
     big = pygame.Surface((cw * S, ch * S))
@@ -1017,7 +1017,7 @@ def _shift_log(rng):
     _text(big, "12 AM - 6 AM", (cw - 280, 68), "mono", 22, TYPE_INK, bold=True, scale=S)
     pen.line(ink, (cw - 284, 92), (cw - 32, 92), 1)
     # table
-    tx, ty, rh = 30, 112, 38
+    tx, ty, rh = 30, 112, 35
     cols = [(0, "TIME"), (120, "DOORS"), (230, "POWER"), (340, "NOTES")]
     pen.rect(ink, tx, ty, cw - 60, 26)
     for x, label in cols:
@@ -1051,8 +1051,8 @@ def _shift_log(rng):
     _signature(big, 132 * S, (ch - 38) * S, 230 * S, 36 * S, random.Random(7), (24, 28, 70), 2.6 * S / 2)
     card = pygame.transform.smoothscale(big, (cw, ch))
     _multiply_noise(card, rng, [(50, 224), (2, 236)])
-    st = _stamp([("SHIFT COMPLETE", 0.42)], (182, 28, 34), (420, 110), rng, angle=-11)
-    card.blit(st, st.get_rect(center=(cw * 0.6, ch * 0.56)))
+    st = _stamp([("SHIFT COMPLETE", 0.44)], (182, 28, 34), (450, 118), rng, angle=-11)
+    card.blit(st, st.get_rect(center=(cw * 0.66, ch * 0.62)))
     return card
 
 
@@ -1072,16 +1072,20 @@ def paycheck(kind="week"):
     rng = random.Random("paycheck-" + kind)
     center = (W // 2, H // 2 + 12)
     bg = _dark_desk(rng, spot=center)
+    if kind == "overtime":
+        center = (W // 2 - 20, H // 2 + 22)
     if kind in ("week", "overtime"):
         card = _check_card(kind, rng)
         _place_card(bg, card, center, 1.6)
         if kind == "overtime":
-            note = _sticky_note([("overtime:", 1.0), ("$0.50", 1.25)], rng)
-            _place_card(bg, note, (center[0] + 360, center[1] - 150), -7, shadow_offset=(6, 9))
+            note = _sticky_note([("overtime:", 0.9), ("$0.50", 1.15)], rng, size=(196, 146))
+            _place_card(bg, note, (center[0] + 418, center[1] - 186), -8, shadow_offset=(6, 9))
     elif kind == "fired":
         _place_card(bg, _pink_slip(rng), center, -1.4)
     else:
         _place_card(bg, _shift_log(rng), center, 1.2)
+    # the lamp falls off a little across the card too
+    _light(bg, (178, 172, 166), [(center[0], center[1] - 30, W * 0.6, H * 0.8, (80, 80, 80))])
     _grain(bg, rng, 232)
     return _finish(bg)
 
