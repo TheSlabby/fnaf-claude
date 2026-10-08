@@ -61,8 +61,10 @@ when the power runs out the doors stop working...
 Tips:
 
 - **Bonnie** comes down the west (left) hall, **Chica** down the east (right)
-  hall. They stand right outside your doors, where no camera can see them,
-  so check the door lights, especially when you hear footsteps.
+  hall. They stand right outside your office, where no camera can see them,
+  so check the door lights, especially when you hear footsteps. Bonnie shows
+  up in the left doorway; Chica peers through the window on the right, so you
+  can still see her with the right door shut.
 - If your door buttons suddenly stop working, someone is already inside.
   Whatever you do, don't touch the monitor.
 - **Foxy** creeps out of Pirate Cove (CAM 1C) when you don't check the cameras.
