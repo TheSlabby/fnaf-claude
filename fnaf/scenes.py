@@ -349,7 +349,7 @@ class NightIntroScene(Scene):
 # The night
 # --------------------------------------------------------------------------
 
-JUMPSCARE_TIME = 1.25
+JUMPSCARE_TIME = 1.4
 
 # Where a room sounds like it is from the office: (stereo pan -1..1, loudness).
 ROOM_AUDIO = {
