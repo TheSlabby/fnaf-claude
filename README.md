@@ -15,8 +15,8 @@ pip install pygame        # or: pip install pygame-ce
 python main.py
 ```
 
-Python 3.8+ and pygame 2.1+ (or pygame-ce). The first launch takes a few
-seconds while the art and sounds are generated.
+Python 3.8+ and pygame 2.1+ (or pygame-ce). Startup takes a few seconds
+while the art and sounds are generated.
 
 Useful flags:
 
@@ -45,9 +45,9 @@ Send them `dist/FNAF.exe` (or `dist/FNAF` on macOS/Linux). Their saves go in a
 
 ## How to play
 
-Survive from 12 AM to 6 AM (about 9 real minutes per night, like the original) without letting
-the animatronics reach you. Doors, lights and the camera all use power, and
-when the power runs out the doors stop working...
+Survive from 12 AM to 6 AM (about 9 real minutes per night, like the
+original) without letting the animatronics reach you. Doors, lights and the
+camera all use power, and when the power runs out the doors stop working...
 
 | Action | Mouse | Keyboard |
 | --- | --- | --- |
@@ -56,7 +56,11 @@ when the power runs out the doors stop working...
 | Right door / right light | Click the panel buttons right of the door | E / D |
 | Raise / lower the camera monitor | Hover over the bar at the bottom | Space |
 | Switch cameras | Click the map buttons | ← / → while the monitor is up |
-| Pause | | Esc |
+| Pause / quit to menu | | Esc, then Q twice |
+| Fullscreen | | F11 |
+
+On the custom night screen, ← / → pick an animatronic, ↑ / ↓ change its level
+and Enter starts the night.
 
 Tips:
 
