@@ -239,6 +239,7 @@ class MenuScene(Scene):
             y += 50
         draw_text(screen, "Fan remake made with pygame. Characters (c) Scott Cawthon.",
                   (SCREEN_W - 18, SCREEN_H - 14), 20, (110, 110, 110), anchor="bottomright")
+        draw_text(screen, "F11: fullscreen", (18, SCREEN_H - 14), 20, (110, 110, 110), anchor="bottomleft")
 
 
 def _star(screen, x, y, r):
@@ -735,6 +736,12 @@ class NightScene(Scene):
                 screen.blit(img, (SCREEN_W // 2 - frames[0].anchor[0] + jx, SCREEN_H // 2 - frames[0].anchor[1] + jy))
                 self.static(screen, 120)
         self.draw_call(screen)
+        if self.night == 1 and self.t < 24 and not st.power_out:
+            a = int(255 * min(1.0, (self.t - 1.0) / 0.6, (24 - self.t) / 1.5)) if self.t > 1.0 else 0
+            if a > 0:
+                draw_text(screen, "Cameras: hover the bar or SPACE    Doors: Q / E    Lights: A / D    Look: mouse",
+                          (SCREEN_W // 2, 194), 22, (200, 200, 200), anchor="center", alpha=a,
+                          shadow=(0, 0, 0))
 
         if self.fade_in > 0:
             veil = pygame.Surface((SCREEN_W, SCREEN_H))
