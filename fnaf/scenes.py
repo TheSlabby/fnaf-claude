@@ -361,6 +361,8 @@ class NightScene(Scene):
         self.paused = False
         self.fade_in = 1.0
         self.call = list(PHONE_CALLS.get(night, [])) if night <= 5 else []
+        # The original's custom-night easter egg.
+        self.golden_egg = ai_levels is not None and tuple(ai_levels) == (1, 9, 8, 7)
         self.call_t = -3.0
         self.call_line = -1
         self.call_line_t = 0.0
@@ -496,6 +498,9 @@ class NightScene(Scene):
             return
 
         self._update_input(dt)
+        if self.golden_egg and self.t > 0.6:
+            self.golden_egg = False
+            st.kill("Golden")
 
         st.update(dt * self.speed)
         for name, data in st.pop_events():
@@ -1081,7 +1086,7 @@ class EndingScene(Scene):
 
 
 class CustomNightScene(Scene):
-    PRESETS = [("All 0", (0, 0, 0, 0)), ("Night 6", (4, 10, 12, 16)), ("Golden Freddy", (1, 9, 8, 7)),
+    PRESETS = [("All 0", (0, 0, 0, 0)), ("Night 5", (3, 5, 7, 5)), ("Night 6", (4, 10, 12, 16)),
                ("4/20 Mode", (20, 20, 20, 20))]
 
     def __init__(self, game):
