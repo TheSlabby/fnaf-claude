@@ -202,12 +202,12 @@ class MenuScene(Scene):
         if faces:
             face = faces[self.glitch_face if self.glitch > 0 else 0]
             jitter = (random.randint(-6, 6), random.randint(-3, 3)) if self.glitch > 0 else (0, 0)
-            flick = 0.55 + 0.25 * math.sin(self.t * 1.3) + random.uniform(-0.08, 0.08)
+            flick = 0.8 + 0.2 * math.sin(self.t * 1.3) + random.uniform(-0.08, 0.08)
             img = face.surface.copy()
             k = int(255 * max(0.2, min(1.0, flick)))
             img.fill((k, k, k), special_flags=pygame.BLEND_RGB_MULT)
             x = SCREEN_W - 380 - face.anchor[0] + jitter[0]
-            y = SCREEN_H // 2 - 10 - face.anchor[1] + jitter[1]
+            y = SCREEN_H // 2 + 30 - face.anchor[1] + jitter[1]
             screen.blit(img, (x, y))
             if self.glitch > 0:
                 add_glows(screen, face.glows, 1.0, (x, y))

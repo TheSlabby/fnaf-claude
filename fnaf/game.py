@@ -19,13 +19,14 @@ else:
 SAVE_PATH = os.path.join(_GAME_DIR, "save.json")
 
 
-def grime(sprite, light=1.0):
-    """Light a jumpscare sprite like the original's renders: lit from the
-    front, falling off into shadow, with a grainy, dirty finish."""
+def grime(sprite, light=1.0, side=0.0):
+    """Light a sprite like the original's renders: lit from the front (or a
+    little to one side), falling off into shadow, with a grainy finish."""
     surf = sprite.surface
     w, h = surf.get_size()
     ax, ay = sprite.anchor
-    lights = [(ax, ay + h * 0.06, w * 0.62, h * 0.5, (int(210 * light), int(200 * light), int(190 * light)))]
+    lights = [(ax + w * side, ay + h * 0.06, w * 0.62, h * 0.5,
+               (int(210 * light), int(200 * light), int(190 * light)))]
     mask = make_light_mask(w, h, (58, 52, 54), lights)
     grain = make_noise_frames(1, w, h, pixel=2, contrast=0.35)[0]
     grain.fill((70, 70, 70), special_flags=pygame.BLEND_RGB_MULT)
@@ -101,10 +102,10 @@ class Assets:
         self.jumpscares["Golden"] = [grime(rc("Golden", 270, body=False, mouth=0.15, eyes="none"), 0.8)]
         yield
         self.menu_faces = [
-            rc("Freddy", 165, body=False, eyes="normal"),
-            rc("Freddy", 165, body=False, eyes="pinpoint", mouth=0.3),
-            rc("Endo", 165, body=False, eyes="pinpoint"),
-            rc("Freddy", 165, body=False, eyes="none", mouth=0.15),
+            grime(rc("Freddy", 165, body=False, eyes="normal"), 0.9, side=-0.18),
+            grime(rc("Freddy", 165, body=False, eyes="pinpoint", mouth=0.3), 0.9, side=-0.18),
+            grime(rc("Endo", 165, body=False, eyes="pinpoint"), 0.9, side=-0.18),
+            grime(rc("Freddy", 165, body=False, eyes="none", mouth=0.15), 0.9, side=-0.18),
         ]
         yield
         for name in ("Freddy", "Bonnie", "Chica", "Foxy"):
