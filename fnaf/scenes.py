@@ -86,7 +86,8 @@ class Scene:
         if not frames or alpha <= 0:
             return
         f = frames[random.randrange(len(frames))]
-        f.set_alpha(int(max(0, min(255, alpha))))
+        a = int(max(0, min(255, alpha)))
+        f.set_alpha(None if a >= 255 else a)
         screen.blit(f, (0, 0))
 
 
@@ -140,7 +141,10 @@ class MenuScene(Scene):
         self.sounds.loop("music", "menu", 0.6)
         self.sounds.loop("static", "static", 0.08)
         self.items = []
+        self.confirm_new = 0.0
         self.rebuild()
+        if self.game.save.get("night", 1) > 1:
+            self.sel = 1  # Continue
 
     def rebuild(self):
         save = self.game.save
@@ -155,8 +159,13 @@ class MenuScene(Scene):
 
     def activate(self, action):
         g = self.game
+        if self.t < 0.5:
+            return  # keys mashed through the previous screen shouldn't pick anything
         self.sounds.play("blip", 0.6)
         if action == "new":
+            if g.save.get("night", 1) > 1 and self.confirm_new <= 0:
+                self.confirm_new = 3.0
+                return
             g.save["night"] = 1
             g.write_save()
             g.change(NewspaperScene(g))
@@ -177,8 +186,6 @@ class MenuScene(Scene):
                 self.sel = (self.sel + 1) % len(self.items)
             elif event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP_ENTER):
                 self.activate(self.items[self.sel][1])
-            elif event.key == pygame.K_ESCAPE:
-                self.game.running = False
         elif event.type == pygame.MOUSEMOTION:
             for i, r in enumerate(self.rects):
                 if r.collidepoint(event.pos):
@@ -190,6 +197,7 @@ class MenuScene(Scene):
 
     def update(self, dt):
         self.t += dt
+        self.confirm_new = max(0.0, self.confirm_new - dt)
         self.scan_y = (self.scan_y + dt * 140) % (SCREEN_H + 200)
         self.next_glitch -= dt
         if self.glitch > 0:
@@ -236,6 +244,9 @@ class MenuScene(Scene):
             if action == "continue":
                 draw_text(screen, "Night %d" % self.game.save.get("night", 1), (r.right + 18, y + 12), 26,
                           (190, 190, 190))
+            elif action == "new" and self.confirm_new > 0:
+                draw_text(screen, "Start over from Night 1? Select again.", (r.right + 18, y + 12), 26,
+                          (220, 120, 110))
             if i == self.sel:
                 draw_text(screen, ">>", (80, y), 44, (240, 240, 240), bold=True)
             self.rects.append(r.inflate(260, 8).move(110, 0))
@@ -325,6 +336,9 @@ class NightIntroScene(Scene):
 
 JUMPSCARE_TIME = 1.4
 
+# Window focus lost / minimised (pygame 2 event types; absent ones are skipped).
+FOCUS_LOST_EVENTS = tuple(getattr(pygame, n) for n in ("WINDOWFOCUSLOST", "WINDOWMINIMIZED") if hasattr(pygame, n))
+
 # Where a room sounds like it is from the office: (stereo pan -1..1, loudness).
 ROOM_AUDIO = {
     "1A": (0.0, 0.22), "1B": (0.0, 0.3), "5": (-0.6, 0.28), "1C": (-0.4, 0.32),
@@ -351,7 +365,7 @@ class NightScene(Scene):
         self.pan_hold = 1.0
         self.glitch = 0.0
         self.switch_static = 0.0
-        self.bar_armed = True
+        self.bar_armed = not hud.CAM_BAR_HIT.collidepoint(pygame.mouse.get_pos())
         self.flicker = False
         self.freddy_lit = False
         self.blink_timer = 0.0
@@ -372,6 +386,8 @@ class NightScene(Scene):
         self.cam_fx = CamGlitch()
         self.js_ghosts = {}
         self.js_bg = None
+        self.pending = []          # door/light presses made while the monitor was coming down
+        self.quit_confirm = 0.0
         self.halluc = 0.0
         self.halluc_face = None
         self.itsme = None          # (cam, seconds left)
@@ -382,18 +398,32 @@ class NightScene(Scene):
             self.sounds.play("ring", 0.6)
 
     # -- input ---------------------------------------------------------------
+    def set_paused(self, paused):
+        if paused == self.paused:
+            return
+        self.paused = paused
+        self.quit_confirm = 0.0
+        if paused:
+            self.sounds.pause()
+        else:
+            self.sounds.unpause()
+            # Don't let a cursor resting on the bar flip the monitor up.
+            self.bar_armed = not hud.CAM_BAR_HIT.collidepoint(pygame.mouse.get_pos())
+
     def handle(self, event):
+        if event.type in FOCUS_LOST_EVENTS and self.state == "play":
+            self.set_paused(True)
+            return
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE and self.state == "play":
-            self.paused = not self.paused
-            if self.paused:
-                self.sounds.pause()
-            else:
-                self.sounds.unpause()
+            self.set_paused(not self.paused)
             return
         if self.paused:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_q:
-                self.sounds.unpause()
-                self.game.change(MenuScene(self.game))
+                if self.quit_confirm > 0:
+                    self.sounds.unpause()
+                    self.game.change(MenuScene(self.game))
+                else:
+                    self.quit_confirm = 2.5
             return
         if self.state != "play":
             return
@@ -442,7 +472,11 @@ class NightScene(Scene):
         return self.assets.office_mod
 
     def door(self, side):
+        if self.st.power_out:
+            return  # dead, like the original
         if self.cam_target or self.cam_anim > 0:
+            if not self.cam_target:
+                self.pending.append((self.door, side))
             return
         if self.st.toggle_door(side):
             self.sounds.play("door", 0.8, pan=SIDE_PAN[side] * 0.7)
@@ -450,7 +484,11 @@ class NightScene(Scene):
             self.sounds.play("error", 0.6, pan=SIDE_PAN[side] * 0.5)
 
     def light(self, side):
+        if self.st.power_out:
+            return
         if self.cam_target or self.cam_anim > 0:
+            if not self.cam_target:
+                self.pending.append((self.light, side))
             return
         if not self.st.toggle_light(side):
             self.sounds.play("error", 0.6)
@@ -462,6 +500,7 @@ class NightScene(Scene):
         if st.power_out or self.state != "play":
             return
         self.cam_target = not self.cam_target
+        self.pending = []
         if self.cam_target:
             self.sounds.play("cam_up", 0.6)
         else:
@@ -482,6 +521,7 @@ class NightScene(Scene):
     # -- update --------------------------------------------------------------
     def update(self, dt):
         if self.paused:
+            self.quit_confirm = max(0.0, self.quit_confirm - dt)
             return
         self.t += dt
         self.fade_in = max(0.0, self.fade_in - dt * 1.2)
@@ -522,6 +562,10 @@ class NightScene(Scene):
             if self.cam_anim >= 1.0 and self.cam_target:
                 st.set_cams(True)
                 self.switch_static = 0.25
+            if self.cam_anim <= 0 and self.pending:
+                pending, self.pending = self.pending, []
+                for action, side in pending:
+                    action(side)
         for side in "LR":
             goal = 1.0 if st.doors[side] else 0.0
             p = self.door_pos[side]
@@ -614,7 +658,8 @@ class NightScene(Scene):
         if self.st.power_out:
             return
         if on_cams and self.cam_anim >= 1:
-            self.itsme = (self.st.cam, random.uniform(1.5, 3.0))
+            if self.st.cam != "6":
+                self.itsme = (self.st.cam, random.uniform(1.5, 3.0))
         elif kind == "faces":
             self.halluc = random.uniform(0.06, 0.14)
             self.halluc_face = random.choice(["Golden", "Freddy", "Bonnie"])
@@ -627,7 +672,7 @@ class NightScene(Scene):
         st = self.st
         mx, my = pygame.mouse.get_pos()
         if pygame.mouse.get_focused():
-            on_bar = hud.CAM_BAR.collidepoint(mx, my)
+            on_bar = hud.CAM_BAR_HIT.collidepoint(mx, my)
             if on_bar and self.bar_armed and not st.power_out:
                 self.bar_armed = False
                 self.toggle_cams()
@@ -641,7 +686,7 @@ class NightScene(Scene):
             speed = -1.0
         elif keys[pygame.K_RIGHT]:
             speed = 1.0
-        elif pygame.mouse.get_focused():
+        elif pygame.key.get_focused():
             edge = SCREEN_W * 0.32
             if mx < edge:
                 speed = -(edge - mx) / edge
@@ -726,13 +771,10 @@ class NightScene(Scene):
         else:
             self.draw_cams(screen)
 
-        if not (st.power_out and st.power_out["phase"] == "black"):
-            if not st.power_out:
-                hud.draw_clock(screen, st.hour_label, self.night)
-                hud.draw_power(screen, st.power, st.usage)
-                hud.draw_cam_bar(screen, hud.CAM_BAR.collidepoint(pygame.mouse.get_pos()))
-            else:
-                hud.draw_clock(screen, st.hour_label, self.night)
+        if not st.power_out:
+            hud.draw_clock(screen, st.hour_label, self.night)
+            hud.draw_power(screen, st.power, st.usage)
+            hud.draw_cam_bar(screen, hud.CAM_BAR_HIT.collidepoint(pygame.mouse.get_pos()))
         if self.halluc > 0 and not cams_visible:
             frames = self.assets.jumpscares.get(self.halluc_face) if self.halluc_face else None
             if frames:
@@ -744,7 +786,7 @@ class NightScene(Scene):
                 draw_text(screen, "IT'S ME", (SCREEN_W // 2 + random.randint(-4, 4), SCREEN_H // 2 - 80), 120,
                           (225, 220, 215), anchor="center", alpha=random.randint(120, 200))
         self.draw_call(screen)
-        if self.night == 1 and self.t < 24 and not st.power_out:
+        if self.night == 1 and self.t < 24 and not st.power_out and not cams_visible:
             a = int(255 * min(1.0, (self.t - 1.0) / 0.6, (24 - self.t) / 1.5)) if self.t > 1.0 else 0
             if a > 0:
                 draw_text(screen, "Cameras: hover the bar or SPACE    Doors: Q / E    Lights: A / D    Look: mouse",
@@ -761,8 +803,9 @@ class NightScene(Scene):
             screen.blit(veil, (0, 0))
             draw_text(screen, "PAUSED", (SCREEN_W // 2, SCREEN_H // 2 - 30), 80, (240, 240, 240), anchor="center",
                       bold=True)
-            draw_text(screen, "Esc: resume     Q: quit to menu", (SCREEN_W // 2, SCREEN_H // 2 + 40), 30,
-                      (200, 200, 200), anchor="center")
+            hint = "Press Q again to quit to the menu" if self.quit_confirm > 0 else "Esc: resume     Q: quit to menu"
+            draw_text(screen, hint, (SCREEN_W // 2, SCREEN_H // 2 + 40), 30,
+                      (220, 150, 140) if self.quit_confirm > 0 else (200, 200, 200), anchor="center")
 
     def draw_office(self, screen):
         st = self.st
@@ -931,6 +974,7 @@ class SixAMScene(Scene):
         self.night = night
         self.custom_state = custom_state
         self.t = 0.0
+        self.prepared = False
         self.sounds.stop_all()
         self.sounds.play("chimes", 0.9)
         self._record()
@@ -947,8 +991,8 @@ class SixAMScene(Scene):
             s["beat6"] = True
             s["stars"] = max(s.get("stars", 0), 2)
         elif self.night == 7 and self.custom_state:
-            levels = tuple(self.custom_state.roster[n].ai for n in CHARACTERS)
-            if all(lv >= 20 for lv in levels):
+            levels = self._custom_levels()
+            if levels and all(lv >= 20 for lv in levels):
                 s["stars"] = 3
         g.write_save()
 
@@ -958,17 +1002,33 @@ class SixAMScene(Scene):
 
     def update(self, dt):
         self.t += dt
+        if 4.5 < self.t and not self.prepared:
+            # Render the end card now, while the screen is holding still.
+            self.prepared = True
+            if self.ending:
+                self.assets.screen_image(self.ending)
         if self.t >= 7.6:
             g = self.game
-            if self.night <= 4:
-                g.change(NightIntroScene(g, self.night + 1))
-            elif self.night == 5:
-                g.change(EndingScene(g, "week"))
-            elif self.night == 6:
-                g.change(EndingScene(g, "overtime"))
+            if self.ending:
+                g.change(EndingScene(g, self.ending))
             else:
-                levels = tuple(self.custom_state.roster[n].ai for n in CHARACTERS) if self.custom_state else ()
-                g.change(EndingScene(g, "fired" if levels and min(levels) >= 20 else "custom"))
+                g.change(NightIntroScene(g, self.night + 1))
+
+    @property
+    def ending(self):
+        if self.night <= 4:
+            return None
+        if self.night == 5:
+            return "week"
+        if self.night == 6:
+            return "overtime"
+        return "fired" if self._custom_levels() and min(self._custom_levels()) >= 20 else "custom"
+
+    def _custom_levels(self):
+        st = self.custom_state
+        if not st:
+            return ()
+        return tuple(getattr(st, "start_ai", None) or (st.roster[n].ai for n in CHARACTERS))
 
     def draw(self, screen):
         screen.fill((0, 0, 0))
@@ -1074,8 +1134,8 @@ class EndingScene(Scene):
     def draw(self, screen):
         screen.blit(self.image, (0, 0))
         title, sub = self.CAPTIONS[self.kind]
-        draw_text(screen, title, (SCREEN_W // 2, 62), 64, (240, 240, 240), anchor="center", shadow=(0, 0, 0))
-        draw_text(screen, sub, (SCREEN_W // 2, 112), 28, (205, 205, 205), anchor="center", shadow=(0, 0, 0))
+        draw_text(screen, title, (SCREEN_W // 2, 50), 64, (240, 240, 240), anchor="center", shadow=(0, 0, 0))
+        draw_text(screen, sub, (SCREEN_W // 2, 96), 28, (205, 205, 205), anchor="center", shadow=(0, 0, 0))
         if self.t > 1.5:
             draw_text(screen, "click to continue", (SCREEN_W // 2, SCREEN_H - 34), 24, (150, 150, 150),
                       anchor="center")
@@ -1093,25 +1153,43 @@ class CustomNightScene(Scene):
         super().__init__(game)
         self.levels = list(game.save.get("custom", [1, 3, 3, 1]))
         self.rects = {}
+        self.sel = 0
+
+    def start(self):
+        self.game.save["custom"] = self.levels
+        self.game.write_save()
+        self.game.change(NightIntroScene(self.game, 7, tuple(self.levels)))
 
     def handle(self, event):
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            self.game.change(MenuScene(self.game))
+        if event.type == pygame.KEYDOWN:
+            k = event.key
+            if k == pygame.K_ESCAPE:
+                self.game.change(MenuScene(self.game))
+            elif k in (pygame.K_LEFT, pygame.K_a):
+                self.sel = (self.sel - 1) % 4
+            elif k in (pygame.K_RIGHT, pygame.K_d):
+                self.sel = (self.sel + 1) % 4
+            elif k in (pygame.K_UP, pygame.K_w, pygame.K_DOWN, pygame.K_s):
+                d = 1 if k in (pygame.K_UP, pygame.K_w) else -1
+                self.levels[self.sel] = max(0, min(20, self.levels[self.sel] + d))
+                self.sounds.play("blip", 0.4)
+            elif k in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                self.sounds.play("blip", 0.5)
+                self.start()
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             for key, r in self.rects.items():
                 if not r.collidepoint(event.pos):
                     continue
                 self.sounds.play("blip", 0.5)
                 if key == "ready":
-                    self.game.save["custom"] = self.levels
-                    self.game.write_save()
-                    self.game.change(NightIntroScene(self.game, 7, tuple(self.levels)))
+                    self.start()
                 elif key == "back":
                     self.game.change(MenuScene(self.game))
                 elif key[0] == "preset":
                     self.levels = list(self.PRESETS[key[1]][1])
                 else:
                     i, d = key
+                    self.sel = i
                     self.levels[i] = max(0, min(20, self.levels[i] + d))
 
     def draw(self, screen):
@@ -1124,7 +1202,8 @@ class CustomNightScene(Scene):
             box = pygame.Rect(0, 0, 230, 250)
             box.midtop = (x, 120)
             pygame.draw.rect(screen, (18, 18, 20), box)
-            pygame.draw.rect(screen, (200, 200, 200), box, 2)
+            pygame.draw.rect(screen, (240, 240, 240) if i == self.sel else (120, 120, 120), box,
+                             4 if i == self.sel else 2)
             portrait = self.assets.portraits.get(name)
             if portrait:
                 screen.set_clip(box.inflate(-4, -4))

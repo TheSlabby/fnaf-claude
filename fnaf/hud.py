@@ -1,5 +1,7 @@
 """HUD pieces: clock, power meter, camera map and the monitor toggle bar."""
 
+import math
+
 import pygame
 
 from .settings import CAM_NAMES, SCREEN_H, SCREEN_W
@@ -103,7 +105,7 @@ _USAGE_COLORS = [(60, 200, 60), (60, 200, 60), (230, 200, 40), (225, 60, 40), (2
 def draw_power(screen, power, usage):
     x, y = 40, SCREEN_H - 112
     r = draw_text(screen, "Power left: ", (x, y), 30, (240, 240, 240), bold=True, shadow=(0, 0, 0))
-    draw_text(screen, "%d%%" % max(0, int(power)), (r.right, y - 4), 40, (250, 250, 250), bold=True,
+    draw_text(screen, "%d%%" % max(0, math.ceil(power)), (r.right, y - 4), 40, (250, 250, 250), bold=True,
               shadow=(0, 0, 0))
     r = draw_text(screen, "Usage: ", (x, y + 40), 30, (240, 240, 240), bold=True, shadow=(0, 0, 0))
     bx = r.right + 4
@@ -115,6 +117,8 @@ def draw_power(screen, power, usage):
 
 # The strip at the bottom you hover over to raise / lower the monitor.
 CAM_BAR = pygame.Rect(SCREEN_W // 2 - 300, SCREEN_H - 52, 600, 40)
+# Hover zone: reaches the bottom edge so flicking the mouse down always works.
+CAM_BAR_HIT = pygame.Rect(CAM_BAR.x, CAM_BAR.y, CAM_BAR.w, SCREEN_H - CAM_BAR.y)
 _bar = None
 
 

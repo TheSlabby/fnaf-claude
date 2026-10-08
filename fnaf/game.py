@@ -38,6 +38,27 @@ def grime(sprite, light=1.0, side=0.0):
     return sprite
 
 
+def _int(v, lo, hi, default):
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return default
+    return max(lo, min(hi, int(v)))
+
+
+def clean_save(data):
+    """Validate a loaded save, falling back to defaults for anything odd."""
+    data = data if isinstance(data, dict) else {}
+    out = {
+        "night": _int(data.get("night"), 1, 5, 1),
+        "stars": _int(data.get("stars"), 0, 3, 0),
+        "beat5": data.get("beat5") is True,
+        "beat6": data.get("beat6") is True,
+    }
+    custom = data.get("custom")
+    if isinstance(custom, list) and len(custom) == 4:
+        out["custom"] = [_int(v, 0, 20, 0) for v in custom]
+    return out
+
+
 class Assets:
     """Everything generated at startup. ``build()`` is a progress generator."""
 
@@ -188,16 +209,17 @@ class Game:
         try:
             with open(SAVE_PATH) as f:
                 data = json.load(f)
-            if isinstance(data, dict):
-                return data
         except (OSError, ValueError):
-            pass
-        return {"night": 1, "stars": 0}
+            data = None
+        return clean_save(data)
 
     def write_save(self):
+        """Write atomically so a crash mid-write can't eat the player's progress."""
+        tmp = SAVE_PATH + ".tmp"
         try:
-            with open(SAVE_PATH, "w") as f:
-                json.dump(self.save, f, indent=2)
+            with open(tmp, "w") as f:
+                json.dump(clean_save(self.save), f, indent=2)
+            os.replace(tmp, SAVE_PATH)
         except OSError:
             pass
 

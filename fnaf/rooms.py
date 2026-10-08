@@ -1163,15 +1163,16 @@ class CamFeeds:
         # stage 2: Foxy stepping out between the curtains (in front of them)
         C.char(FOXY, (676, 238), 46, lambda st: st[1] == 2, eyes="glow", look=(0.25, 0.2), rot=-7, glow_k=1.2)
         yield C
-        # out of order sign (foreground)
-        cv = C.layer_canvas((760, 380, 300, 340))
+        # out of order sign (foreground; front-left so the camera map never covers it)
+        dx = -470
+        cv = C.layer_canvas((760 + dx, 380, 300, 340))
         sp = cv[1]
-        sp.rect((40, 40, 44), 902, 520, 10, 180)
-        sp.ellipse((30, 30, 34), 907, 702, 60, 10)
-        sp.rect((214, 208, 190), 790, 410, 236, 136)
-        sp.rect((60, 30, 30), 790, 410, 236, 136, width=4)
-        sp.text("SORRY!", 908, 448, 40, (170, 30, 30))
-        sp.text("OUT OF ORDER", 908, 500, 31, (30, 30, 30))
+        sp.rect((40, 40, 44), 902 + dx, 520, 10, 180)
+        sp.ellipse((30, 30, 34), 907 + dx, 702, 60, 10)
+        sp.rect((214, 208, 190), 790 + dx, 410, 236, 136)
+        sp.rect((60, 30, 30), 790 + dx, 410, 236, 136, width=4)
+        sp.text("SORRY!", 908 + dx, 448, 40, (170, 30, 30))
+        sp.text("OUT OF ORDER", 908 + dx, 500, 31, (30, 30, 30))
         C.add_layer(cv, lambda st: True)
         yield C
 
