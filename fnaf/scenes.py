@@ -111,6 +111,7 @@ class LoadingScene(Scene):
 
     def draw(self, screen):
         screen.fill((0, 0, 0))
+        self.static(screen, 22)
         w = 520
         x, y = (SCREEN_W - w) // 2, SCREEN_H // 2 + 30
         draw_text(screen, "Five Nights at Freddy's", (SCREEN_W // 2, y - 90), 54, (230, 230, 230),
