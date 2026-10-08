@@ -678,6 +678,11 @@ class NightScene(Scene):
         elif name == "power_out":
             self.sounds.stop_all()
             self.sounds.play("powerdown", 0.9)
+            for side in "LR":
+                if self.door_pos[side] > 0.5:
+                    self.sounds.play("door", 0.7, pan=SIDE_PAN[side] * 0.7)
+            if self.cam_anim > 0:
+                self.sounds.play("cam_down", 0.6)
             self.cam_target = False
             self.cam_anim = 0.0
         elif name == "musicbox":
