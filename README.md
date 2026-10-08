@@ -89,12 +89,19 @@ fnaf/
   characters.py    procedural animatronic art
   office.py        the office panorama, doors, lights, buttons
   rooms.py         the camera feeds
-  audio.py         procedural sound synthesis
+  screens.py       newspaper, paychecks, Game Over art
+  audio.py         procedural sound synthesis (runs in a helper process at startup)
+  effects.py       office panorama warp, CRT glitches, monitor flip
   util.py          drawing helpers (Pen, lighting, static, text)
 tools/
   balance_sim.py   headless bot that plays nights to check difficulty
+tests/
+  test_logic.py    rules of the night simulation (python tests/test_logic.py)
 ```
 
+The AI follows the original game's reverse-engineered rules (movement
+opportunities every few seconds, d20 rolls against each animatronic's AI
+level, Freddy's countdown, Foxy's lock timer, the per-night power drain).
 To make the game easier or harder, tweak `HOUR_SECONDS`, `DRAIN_PER_USAGE`
 and `NIGHT_PASSIVE_DRAIN` in `fnaf/settings.py`, or the per-night AI levels in
 `NIGHT_AI` in `fnaf/logic.py`, then check the result with
