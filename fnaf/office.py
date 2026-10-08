@@ -15,6 +15,7 @@ Public API:
     DOORWAYS  {"L"/"R": Rect}             door openings (office coords)
     BUTTONS   {(side, "door"/"light"): Rect}  click targets (office coords)
     NOSE_RECT Rect                         Freddy's nose on the CELEBRATE! poster
+    WINDOW_R  Rect                         the right-hand window's glass (office coords)
     Office().build() / Office().draw(...)
 """
 
@@ -74,6 +75,16 @@ _NOSE_LOCAL = (0.0, 0.07)  # Freddy's nose relative to the head centre, in head 
 NOSE_RECT = pygame.Rect(0, 0, 24, 18)
 NOSE_RECT.center = (int(_POSTER_HEADS["Freddy"][0] + _NOSE_LOCAL[0] * _POSTER_HEADS["Freddy"][2]),
                     int(_POSTER_HEADS["Freddy"][1] + _NOSE_LOCAL[1] * _POSTER_HEADS["Freddy"][2]))
+
+# The window on the right wall, between the desk and the right door (as in
+# FNAF 1). When the right light is on Chica looms here, close to the glass,
+# visible even with the right door shut.
+WINDOW_R = pygame.Rect(1244, 150, 202, 222)
+_WIN_FRAME = 12
+WINDOW_CHAR_SCALE = 60
+WINDOW_CHAR_HEAD = (WINDOW_R.centerx + 4, 236)
+_WIN_Z_FAR = 3.7            # far wall of the hallway behind the window
+_WIN_SPILL_RECT = pygame.Rect(1196, 118, 266, 382)
 
 # Desk (a box seen from the front; top at world Y=0.48 between Z 1.45 .. 2.15).
 DESK_TOP_WY = 0.48
@@ -555,6 +566,8 @@ def _shadow_mask():
     q.rect((140, 140, 140), 856, 396, 110, 80)
     q.circle((170, 170, 170), FAN_C[0] - 8, FAN_C[1] + 10, FAN_R)
     q.rect((160, 160, 160), 1096, 410, 220, 70)
+    q.rect((120, 120, 120), WINDOW_R.x - _WIN_FRAME - 10, WINDOW_R.y - _WIN_FRAME - 8,
+           WINDOW_R.w + 2 * _WIN_FRAME + 24, WINDOW_R.h + 2 * _WIN_FRAME + 22)
     # Extra blur: shrink further, then scale back up in two bilinear steps.
     tiny = pygame.transform.smoothscale(low, (W // (k * 3), H // (k * 3)))
     mid = pygame.transform.smoothscale(tiny, (W // 4, H // 4))
@@ -742,11 +755,11 @@ def _drawing_surface(w, h, subject, seed):
 
 _DRAWINGS = [
     # (centre x, centre y, w, h, angle, subject)
-    (1268, 176, 76, 96, -6, "Freddy"),
-    (1360, 166, 86, 66, 4, "Chica"),
-    (1424, 220, 62, 82, 8, "Foxy"),
-    (1296, 292, 90, 70, 3, "Bonnie"),
-    (1394, 312, 74, 92, -5, "Freddy"),
+    (908, 214, 76, 96, -6, "Freddy"),
+    (996, 206, 84, 64, 4, "Chica"),
+    (1082, 228, 62, 82, 8, "Foxy"),
+    (1174, 224, 72, 90, -5, "Freddy"),
+    (1160, 316, 86, 66, 3, "Bonnie"),
     (762, 186, 72, 56, -4, "Bonnie"),
 ]
 
@@ -1078,6 +1091,128 @@ def _draw_lamp_and_wires(p, rng):
 
 
 # ---------------------------------------------------------------------------
+# The right-hand window
+# ---------------------------------------------------------------------------
+
+def _draw_window_frame(p, rng):
+    """Frame, sill and a dark opening (the glass content is drawn per frame)."""
+    r = WINDOW_R
+    f = _WIN_FRAME
+    p.rect((3, 3, 4), r.x, r.y, r.w, r.h)
+    p.rect((24, 26, 30), r.x - f - 3, r.y - f - 3, r.w + 2 * f + 6, r.h + 2 * f + 6, radius=3)
+    # Frame bars with a bevel.
+    for x, y, w, h in ((r.x - f, r.y - f, r.w + 2 * f, f), (r.x - f, r.bottom, r.w + 2 * f, f),
+                       (r.x - f, r.y, f, r.h), (r.right, r.y, f, r.h)):
+        p.rect(shade(STEEL, 0.55), x, y, w, h)
+        p.rect(STEEL, x + 1.5, y + 1.5, w - 3, h - 3)
+    _vgrad(p, r.x - f + 2, r.y - f + 2, r.w + 2 * f - 4, f - 4, shade(STEEL, 1.35), shade(STEEL, 0.95))
+    _hgrad(p, r.x - f + 2, r.y, f - 4, r.h, shade(STEEL, 1.2), shade(STEEL, 0.85))
+    _hgrad(p, r.right + 2, r.y, f - 4, r.h, shade(STEEL, 0.85), shade(STEEL, 1.15))
+    for x in (r.x - f / 2.0, r.right + f / 2.0):
+        for y in (r.y - f / 2.0, r.bottom + f / 2.0):
+            _bolt(p, x, y, 2.4)
+    # Sill ledge sticking out of the wall (seen from above).
+    sy = r.bottom + f
+    p.poly((112, 116, 122), [(r.x - f - 6, sy), (r.right + f + 6, sy), (r.right + f + 10, sy + 6),
+                             (r.x - f - 10, sy + 6)])
+    p.rect((40, 42, 46), r.x - f - 10, sy + 6, r.w + 2 * f + 20, 3)
+    for _ in range(5):
+        x = rng.uniform(r.x, r.right)
+        p.line((70, 72, 76), (x, sy + 1), (x + rng.uniform(4, 14), sy + 4), 1)
+
+
+def _draw_window_hall(p, rng):
+    """The hallway behind the window (office coords)."""
+    r = WINDOW_R
+    zf = _WIN_Z_FAR
+    k = ZWALL / zf
+    yc = VPY + FOCAL * _HALL_CEIL_WY / zf
+    p.rect((26, 26, 28), r.x, r.y, r.w, r.h)
+    band_top = VPY + (BAND_TOP - VPY) * k
+    band_sq = BAND_SQ * k
+    _vgrad(p, r.x, yc, r.w, band_top - 3 - yc, shade(WALL_A, 0.95), WALL_B)
+    p.rect((34, 36, 40), r.x, band_top - 3, r.w, 3)
+    for row in range(3):
+        for col in range(int(r.w / band_sq) + 2):
+            c = TILE_K if (row + col) % 2 else TILE_W
+            p.rect(c, r.x + col * band_sq, band_top + row * band_sq, band_sq + 0.5, band_sq + 0.5)
+    for _ in range(10):
+        x = rng.uniform(r.x, r.right)
+        y0 = yc + rng.uniform(0, 20)
+        y1 = min(band_top - 3, y0 + rng.uniform(30, 120))
+        _vgrad(p, x, y0, rng.uniform(1, 4), y1 - y0, shade(_upper_col(y0 + 60), 0.7), _upper_col(y1 + 60))
+    # A faded flyer and a light switch on the far wall.
+    fx, fy = r.x + 18, r.y + 40
+    p.rect((30, 30, 32), fx + 2, fy + 3, 44, 58)
+    p.rect((196, 190, 168), fx, fy, 44, 58)
+    p.rect((60, 90, 170), fx + 4, fy + 5, 36, 8)
+    for i in range(5):
+        p.rect((120, 118, 110), fx + 5, fy + 20 + i * 7, rng.uniform(20, 34), 2)
+    p.rect((170, 166, 150), r.right - 40, r.y + 120, 12, 18, radius=2)
+    p.rect((60, 58, 52), r.right - 36, r.y + 125, 4, 8)
+
+
+def _win_jamb_polys():
+    """Inner faces visible inside the window (it is right of the vanishing point)."""
+    r = WINDOW_R
+
+    def back(x, y):
+        return (VPX + (x - VPX) * ZWALL / _HALL_Z_IN, VPY + (y - VPY) * ZWALL / _HALL_Z_IN)
+    tl, tr, br, bl = (r.x, r.y), (r.right, r.y), (r.right, r.bottom), (r.x, r.bottom)
+    btl, btr, bbr, bbl = back(*tl), back(*tr), back(*br), back(*bl)
+    right = [tr, btr, bbr, br]
+    top = [tl, tr, btr, (max(r.x, btl[0]), btl[1])]
+    sill = [bl, br, bbr, (max(r.x, bbl[0]), bbl[1])]
+    return right, top, sill
+
+
+def _draw_window_jambs(p):
+    right, top, sill = _win_jamb_polys()
+    _quad_strips(p, [right[0], right[1], right[2], right[3]], (80, 84, 90), (40, 42, 46))
+    p.poly((24, 25, 28), top)
+    p.poly((96, 98, 102), sill)
+
+
+def _glass_overlay(w, h, rng, reflect, dust=1.0):
+    """Grimy glass: dust, streaks, a crack and diagonal reflections (alpha)."""
+    out = pygame.Surface((w, h), pygame.SRCALPHA)
+    out.fill((0, 0, 0, 0))
+    # Reflections: soft diagonal bands (drawn small, then blurred by scaling).
+    small = pygame.Surface((w // 4, h // 4), pygame.SRCALPHA)
+    small.fill((0, 0, 0, 0))
+    for x0, width, a in ((-10, 9, reflect), (18, 4, int(reflect * 0.7)), (38, 12, int(reflect * 0.45))):
+        pygame.draw.polygon(small, (230, 236, 255, a),
+                            [(x0, h // 4), (x0 + width, h // 4), (x0 + width + 30, 0), (x0 + 30, 0)])
+    small = pygame.transform.smoothscale(small, (w // 8, h // 8))
+    out.blit(pygame.transform.smoothscale(small, (w, h)), (0, 0))
+    # Grime gathering at the bottom and in the corners.
+    for i in range(24):
+        a = int(70 * (i / 23.0) ** 2)
+        pygame.draw.line(out, (64, 56, 44, a), (0, h - 24 + i), (w, h - 24 + i))
+    dirt = pygame.Surface((w, h), pygame.SRCALPHA)
+    dirt.fill((0, 0, 0, 0))
+    for _ in range(140):
+        x, y = rng.uniform(0, w), rng.uniform(0, h)
+        a = int(rng.randint(25, 70) * dust)
+        pygame.draw.circle(dirt, (80, 74, 60, a), (int(x), int(y)), rng.choice((1, 1, 2, 3)))
+    for _ in range(9):
+        x = rng.uniform(4, w - 4)
+        y0 = rng.uniform(0, h * 0.5)
+        for yy in range(int(y0), int(min(h, y0 + rng.uniform(30, 110)))):
+            dirt.set_at((int(x), yy), (70, 64, 52, int(50 * dust)))
+    out.blit(dirt, (0, 0))
+    # A crack in the upper-left corner.
+    pts = [(2, 22), (16, 30), (24, 26), (40, 44), (52, 46)]
+    pygame.draw.lines(out, (220, 226, 230, 110), False, pts, 1)
+    pygame.draw.lines(out, (220, 226, 230, 80), False, [(16, 30), (20, 48), (30, 60)], 1)
+    # Inner shadow along the frame.
+    for i in range(6):
+        a = int(90 * (1 - i / 6.0))
+        pygame.draw.rect(out, (0, 0, 0, a), pygame.Rect(i, i, w - 2 * i, h - 2 * i), 1)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # The hallway outside a doorway
 # ---------------------------------------------------------------------------
 
@@ -1249,6 +1384,13 @@ class Office:
         self._jambs_raw = {}
         self._hall_masks = {}
         self._office_mask = None
+        self.windows = {}        # who or None -> lit window surface
+        self.win_dark = None
+        self.win_spill = None
+        self._win_raw = None
+        self._win_jambs = None
+        self._win_mask = None
+        self._glass = {}
 
     # -- building ---------------------------------------------------------------
     def build(self):
@@ -1283,6 +1425,7 @@ class Office:
         _draw_poster(p, big, rng)
         yield
         _draw_drawings(p, big)
+        _draw_window_frame(p, rng)
         yield
         for pen in (p, m):
             _draw_doorframe(pen, rng)
@@ -1381,6 +1524,13 @@ class Office:
                 levels.append(parts)
             self.spill[side] = levels
             yield
+        r = _WIN_SPILL_RECT
+        lights = [(WINDOW_R.centerx - r.x, WINDOW_R.bottom + 40 - r.y, 200, 130, (160, 158, 146)),
+                  (WINDOW_R.centerx - r.x, WINDOW_R.centery - r.y, 170, 200, (110, 108, 100))]
+        add = _light(raw.subsurface(r), make_light_mask(r.w, r.h, (0, 0, 0), lights), 1.5)
+        img = base.subsurface(r).copy()
+        img.blit(add, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+        self.win_spill = _cv(img)
         self.base = _cv(base)
         del raw
         yield
@@ -1394,7 +1544,10 @@ class Office:
             yield
         self.interiors[("L", "Bonnie")] = self._make_interior("L", "Bonnie")
         yield
-        self.interiors[("R", "Chica")] = self._make_interior("R", "Chica")
+        self._prepare_window()
+        self.windows[None] = self._make_window(None)
+        yield
+        self.windows["Chica"] = self._make_window("Chica")
         yield
         self._make_show()
         yield
@@ -1440,14 +1593,14 @@ class Office:
     def _char_sprite(self, name, eyes="normal"):
         return characters.render_character(name, DOOR_CHAR_SCALE, eyes=eyes, look=(0.0, 0.1), prop=False)
 
-    def _toplit(self, spr):
+    def _toplit(self, spr, scale=DOOR_CHAR_SCALE):
         """Copy of the sprite surface lit from above (darker toward the feet)."""
         surf = spr.surface.copy()
         w, h = surf.get_size()
         grad = pygame.Surface((w, h))
         ay = spr.anchor[1]
         for yy in range(h):
-            u = (yy - ay) / (DOOR_CHAR_SCALE * 5.0)
+            u = (yy - ay) / (scale * 5.0)
             v = int(255 * clamp(1.0 - 0.3 * u, 0.62, 1.0))
             pygame.draw.line(grad, (v, v, v), (0, yy), (w, yy))
         surf.blit(grad, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
@@ -1473,6 +1626,50 @@ class Office:
         surf = _light(surf, self._hall_masks[side], HALL_GAIN)
         if glows:
             add_glows(surf, glows, 0.8)
+        return _cv(surf)
+
+    def _prepare_window(self):
+        r = WINDOW_R
+        rng = random.Random(91)
+        self._win_raw, _ = render_ss(r.w, r.h, lambda pen: _draw_window_hall(pen.sub(-r.x, -r.y), rng), ss=2)
+        self._win_jambs, _ = render_ss(r.w, r.h, lambda pen: _draw_window_jambs(pen.sub(-r.x, -r.y)), ss=2,
+                                       alpha=True)
+        self._win_mask = make_light_mask(r.w, r.h, (30, 30, 34), [
+            (r.w * 0.5, -30, r.w * 1.3, r.h * 1.5, (196, 194, 184)),
+            (r.w * 0.5, r.h * 0.2, r.w * 0.7, r.h * 0.6, (60, 58, 54)),
+        ])
+        for key, refl, dust in (("lit", 20, 1.0), ("dark", 46, 0.3)):
+            self._glass[key] = _glass_overlay(r.w, r.h, random.Random(17), refl, dust)
+        # Unlit: black hallway, the jambs faintly lit by the office, reflections on the glass.
+        dark = _const((r.w, r.h), (3, 3, 4))
+        jam = self._win_jambs.copy()
+        lvl = self._office_mask.subsurface(r).copy() if self._office_mask else _const((r.w, r.h), (90, 90, 96))
+        jam.blit(lvl, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        jam.blit(_const((r.w, r.h), (120, 120, 130)), (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        dark.blit(jam, (0, 0))
+        dark.blit(self._glass["dark"], (0, 0))
+        self.win_dark = _cv(dark)
+
+    def _make_window(self, who):
+        """The window with the right hall light on, optionally someone at the glass."""
+        if self._win_raw is None:
+            self._prepare_window()
+        r = WINDOW_R
+        surf = self._win_raw.copy()
+        glows = []
+        if who:
+            s = WINDOW_CHAR_SCALE
+            spr = characters.render_character(who, s, eyes="normal", look=(-0.15, 0.15), prop=False)
+            hx, hy = WINDOW_CHAR_HEAD
+            sil = _silhouette(spr.surface, 110)
+            sil = pygame.transform.smoothscale(sil, (int(sil.get_width() * 1.1), int(sil.get_height() * 1.1)))
+            surf.blit(sil, (hx - r.x - spr.anchor[0] * 1.1 - 16, hy - r.y - spr.anchor[1] * 1.1 + 34))
+            _sprite_blit(self._toplit(spr, s), spr, surf, (hx - r.x, hy - r.y), glows)
+        surf.blit(self._win_jambs, (0, 0))
+        surf = _light(surf, self._win_mask, HALL_GAIN)
+        if glows:
+            add_glows(surf, glows, 0.8)
+        surf.blit(self._glass["lit"], (0, 0))
         return _cv(surf)
 
     def _make_dark_interior(self, side):
@@ -1559,7 +1756,8 @@ class Office:
 
         t: seconds (fan animation); door_pos: {"L"/"R": 0 open .. 1 shut};
         door_closed / lights: {"L"/"R": bool} (button glows, lit doorway);
-        at_door: {"L"/"R": name or None}, shown only in a lit doorway;
+        at_door: {"L"/"R": name or None}: "L" stands in the lit left doorway,
+        "R" at the right window (lit by the right light, whatever the door);
         power_out: None | "dark" | "show" | "black"; freddy_lit: Freddy's
         face/eyes during "show"; golden: Golden Freddy slumped by the desk;
         flicker: lit doorways are drawn dark this frame.
@@ -1589,7 +1787,8 @@ class Office:
                     if power_out == "show" and side == "L":
                         img = self.show[bool(freddy_lit)]
                 elif lit_door:
-                    who = at_door.get(side) if at_door else None
+                    # On the right the animatronic shows up at the window instead.
+                    who = (at_door.get(side) if at_door else None) if side == "L" else None
                     key = (side, who or None)
                     img = self.interiors.get(key)
                     if img is None:
@@ -1607,6 +1806,17 @@ class Office:
                         surf, (px, py) = self.caps[(side, kind, True)]
                         dest.blit(surf, (px - sx, py))
                         add_glows(dest, self.cap_glows[(side, kind)], 1.0, (-sx, 0))
+        # The right-hand window: lit (with whoever is at the glass) or dark.
+        if not dark:
+            if lights.get("R") and not flicker:
+                who = (at_door.get("R") if at_door else None) or None
+                img = self.windows.get(who)
+                if img is None:
+                    img = self.windows[who] = self._make_window(who)
+                dest.blit(self.win_spill, (_WIN_SPILL_RECT.x - sx, _WIN_SPILL_RECT.y))
+            else:
+                img = self.win_dark
+            dest.blit(img, (WINDOW_R.x - sx, WINDOW_R.y))
         if golden and self.golden:
             lit, dk, (gx, gy) = self.golden
             dest.blit(dk if dark else lit, (gx - sx, gy))
