@@ -92,8 +92,9 @@ DOOR_CHAR_SCALE = 70
 DOOR_CHAR_HEAD = {"L": (282, 258), "R": (W - 282, 258)}
 
 # Lighting gains (light masks only reach 1.0; these scale the result).
-LIGHT_GAIN = 2.35       # office
+LIGHT_GAIN = 1.8        # office (kept dim, like the original)
 HALL_GAIN = 2.1         # harsh hallway light outside a doorway
+DOOR_CHAR_GAIN = 3.4    # an animatronic caught in the door light
 
 GOLDEN_SCALE = 74
 GOLDEN_HEAD = (VPX, 420)
@@ -1499,7 +1500,7 @@ class Office:
             v = int(255 * clamp(0.55 + yy / 140.0, 0.0, 1.0))
             pygame.draw.line(top_shadow, (v, v, v), (0, yy), (r.w, yy))
         _mult(light, top_shadow)
-        lit = _light(surf, light, LIGHT_GAIN * 1.45)
+        lit = _light(surf, light, DOOR_CHAR_GAIN)
         dark = _light(surf, _const((r.w, r.h), (24, 25, 32)))
         self.shutters[side] = _cv(lit)
         self.dark_shutters[side] = _cv(dark)

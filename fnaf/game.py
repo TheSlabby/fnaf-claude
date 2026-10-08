@@ -80,7 +80,7 @@ class Assets:
         self.noise = make_noise_frames(6)
         yield
         self.scanlines = make_scanlines()
-        self.vignette = make_vignette(strength=0.55)
+        self.vignette = make_vignette(strength=0.62)
         self.warp = PanoramaWarp()
         self.tablet = make_tablet()
         yield
