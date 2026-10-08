@@ -5,6 +5,8 @@ Everything (the office, camera feeds, animatronics, jumpscares, static, every
 sound effect and the Toreador March music box) is generated procedurally in
 code at startup. There are no image or audio files.
 
+![Menu, Bonnie at the door, Chica at the window, the show stage, Foxy running, a jumpscare](docs/screenshots.jpg)
+
 Fan project, not affiliated with or endorsed by Scott Cawthon. All characters
 belong to him.
 
