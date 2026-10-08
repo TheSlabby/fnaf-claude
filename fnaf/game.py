@@ -7,6 +7,7 @@ import sys
 import pygame
 
 from .settings import FPS, SCREEN_H, SCREEN_W, TITLE
+from .effects import PanoramaWarp, make_tablet
 from .util import make_noise_frames, make_scanlines, make_vignette
 
 if getattr(sys, "frozen", False):
@@ -31,6 +32,8 @@ class Assets:
         self.noise = []
         self.scanlines = None
         self.vignette = None
+        self.warp = None
+        self.tablet = None
         self.jumpscares = {}
         self.menu_faces = []
         self.portraits = {}
@@ -59,6 +62,8 @@ class Assets:
         yield
         self.scanlines = make_scanlines()
         self.vignette = make_vignette(strength=0.55)
+        self.warp = PanoramaWarp()
+        self.tablet = make_tablet()
         yield
 
     def _build_characters(self):

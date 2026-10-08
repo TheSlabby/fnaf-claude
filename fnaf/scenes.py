@@ -6,6 +6,7 @@ import random
 import pygame
 
 from . import hud
+from .effects import CamGlitch, draw_tablet, tinted
 from .logic import NightState
 from .settings import (CAM_ORDER, CAM_PAN_MAX, CHARACTERS, OFFICE_SCROLL_MAX,
                        SCREEN_H, SCREEN_W)
@@ -380,6 +381,13 @@ class NightScene(Scene):
         self.call_line_t = 0.0
         self.call_muted = False
         self.mute_rect = pygame.Rect(30, 30, 150, 40)
+        self.view = pygame.Surface((SCREEN_W, SCREEN_H)).convert()
+        self.cam_fx = CamGlitch()
+        self.js_ghosts = {}
+        self.halluc_timer = random.uniform(40, 160)
+        self.halluc = 0.0
+        self.halluc_face = None
+        self.itsme = None          # (cam, seconds left)
         self.sounds.stop_all()
         self.sounds.loop("fan", "fan", 0.35)
         self.sounds.loop("ambience", "ambience", 0.4)
@@ -430,7 +438,8 @@ class NightScene(Scene):
                         self.switch_cam(cam)
                         return
             elif not self.cam_target and self.cam_anim <= 0:
-                ox, oy = event.pos[0] + self.scroll, event.pos[1]
+                ux, uy = self.assets.warp.unwarp(event.pos)
+                ox, oy = ux + self.scroll, uy
                 for (side, kind), r in self.office_mod.BUTTONS.items():
                     if r.collidepoint(ox, oy):
                         if kind == "door":
@@ -477,6 +486,7 @@ class NightScene(Scene):
             return
         self.st.set_cam(cam)
         self.sounds.play("blip", 0.55)
+        self.cam_fx.kick(4)
         self.switch_static = 0.22
         self.pan = 0.0
         self.pan_dir = 1
@@ -538,6 +548,8 @@ class NightScene(Scene):
                 self.pan_hold = 1.4
         self.glitch = max(0.0, self.glitch - dt)
         self.switch_static = max(0.0, self.switch_static - dt)
+        if self.cam_anim >= 1:
+            self.cam_fx.update(dt)
 
         # Door lights.
         any_light = st.lights["L"] or st.lights["R"]
@@ -559,11 +571,18 @@ class NightScene(Scene):
             self.sounds.loop("static", "static", 0.5 if self.glitch > 0 else 0.16)
         else:
             self.sounds.stop("static")
-        if st.occupants("6") and not st.power_out:
-            vol = 0.8 if (st.cams_up and st.cam == "6") else 0.12
-            self.sounds.loop("kitchen", "kitchen", vol)
+        kitchen = st.occupants("6") if not st.power_out else frozenset()
+        on_cam6 = st.cams_up and st.cam == "6"
+        if "Chica" in kitchen:
+            self.sounds.loop("kitchen", "kitchen", 0.8 if on_cam6 else 0.12)
         else:
             self.sounds.stop("kitchen", 300)
+        if "Freddy" in kitchen:
+            self.sounds.loop("musicbox", "musicbox", 0.55 if on_cam6 else 0.06)
+        elif not st.power_out:
+            self.sounds.stop("musicbox", 400)
+
+        self._update_hallucinations(dt)
 
         # Power-out show: Freddy's face blinks to the music box.
         if st.power_out and st.power_out["phase"] == "show":
@@ -586,6 +605,33 @@ class NightScene(Scene):
                     if self.call_line < len(self.call) and self.call_line_t > 1.6 + 0.055 * len(self.call[self.call_line]):
                         self.call_line += 1
                         self.call_line_t = 0.0
+        talking = (self.call and not self.call_muted and 0 <= self.call_line < len(self.call)
+                   and not st.power_out)
+        if talking:
+            self.sounds.loop("voice", "garble" if self.night == 5 else "voice", 0.5)
+        else:
+            self.sounds.stop("voice", 250)
+
+    def _update_hallucinations(self, dt):
+        """Rare flashes like the original's: faces, and 'IT'S ME' on the walls."""
+        if self.halluc > 0:
+            self.halluc -= dt
+        if self.itsme:
+            left = self.itsme[1] - dt
+            self.itsme = (self.itsme[0], left) if left > 0 else None
+        if self.night < 2 or self.st.power_out:
+            return
+        self.halluc_timer -= dt
+        if self.halluc_timer > 0:
+            return
+        self.halluc_timer = random.uniform(70, 220)
+        if self.cam_anim >= 1:
+            if self.st.cam in ("2B", "4B", "1B", "4A"):
+                self.itsme = (self.st.cam, random.uniform(1.0, 3.0))
+        else:
+            self.halluc = random.uniform(0.06, 0.14)
+            self.halluc_face = random.choice(["Golden", "Freddy", "Bonnie"])
+            self.sounds.play("static_burst", 0.35)
 
     def _update_input(self, dt):
         st = self.st
@@ -619,6 +665,7 @@ class NightScene(Scene):
             who, src, dst = data["who"], data["src"], data["dst"]
             if who in ("Bonnie", "Chica") and st.cams_up and st.cam in (src, dst):
                 self.glitch = random.uniform(1.2, 2.6)
+                self.cam_fx.kick(6)
                 self.sounds.play("static_burst", 0.5)
             if who in ("Bonnie", "Chica"):
                 if dst in ("LDOOR", "RDOOR"):
@@ -669,14 +716,7 @@ class NightScene(Scene):
         cams_visible = self.cam_anim >= 1.0
         if not cams_visible:
             self.draw_office(screen)
-            if self.cam_anim > 0:
-                # The monitor sliding up in front of the guard.
-                h = int(SCREEN_H * self.cam_anim)
-                tilt = int((1 - self.cam_anim) * 60)
-                pygame.draw.polygon(screen, (22, 22, 24), [(tilt, SCREEN_H - h), (SCREEN_W - tilt, SCREEN_H - h),
-                                                           (SCREEN_W, SCREEN_H), (0, SCREEN_H)])
-                pygame.draw.polygon(screen, (70, 70, 74), [(tilt, SCREEN_H - h), (SCREEN_W - tilt, SCREEN_H - h),
-                                                           (SCREEN_W, SCREEN_H), (0, SCREEN_H)], 6)
+            draw_tablet(screen, self.assets.tablet, self.cam_anim)
         else:
             self.draw_cams(screen)
 
@@ -687,6 +727,13 @@ class NightScene(Scene):
                 hud.draw_cam_bar(screen, hud.CAM_BAR.collidepoint(pygame.mouse.get_pos()))
             else:
                 hud.draw_clock(screen, st.hour_label, self.night)
+        if self.halluc > 0 and self.halluc_face and not cams_visible:
+            frames = self.assets.jumpscares.get(self.halluc_face)
+            if frames:
+                img = frames[0].surface
+                jx, jy = random.randint(-30, 30), random.randint(-20, 20)
+                screen.blit(img, (SCREEN_W // 2 - frames[0].anchor[0] + jx, SCREEN_H // 2 - frames[0].anchor[1] + jy))
+                self.static(screen, 120)
         self.draw_call(screen)
 
         if self.fade_in > 0:
@@ -706,7 +753,7 @@ class NightScene(Scene):
         st = self.st
         phase = st.power_out["phase"] if st.power_out else None
         self.assets.office.draw(
-            screen, int(self.scroll), t=self.t,
+            self.view, int(self.scroll), t=self.t,
             door_pos=self.door_pos,
             door_closed=dict(st.doors),
             lights=dict(st.lights),
@@ -716,6 +763,7 @@ class NightScene(Scene):
             golden=(st.golden == "office"),
             flicker=self.flicker,
         )
+        self.assets.warp.apply(self.view, screen)
         screen.blit(self.assets.vignette, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
 
     def draw_cams(self, screen):
@@ -744,6 +792,10 @@ class NightScene(Scene):
         else:
             self.static(screen, 255 if self.switch_static > 0.1 else 110 if self.switch_static > 0 else
                         random.randint(38, 70))
+        if self.itsme and self.itsme[0] == cam and self.glitch <= 0:
+            draw_text(screen, "IT'S ME", (SCREEN_W // 2 + random.randint(-3, 3), SCREEN_H // 2 - 60), 110,
+                      (210, 210, 205), anchor="center", alpha=random.randint(150, 220))
+        self.cam_fx.draw(screen)
         screen.blit(self.assets.scanlines, (0, 0))
         hud.draw_cam_frame(screen, cam, self.t)
         hud.draw_map(screen, cam, self.t)
@@ -762,44 +814,81 @@ class NightScene(Scene):
             draw_text(screen, line, (SCREEN_W // 2, 150), 28, (235, 235, 210), anchor="center",
                       alpha=a, shadow=(0, 0, 0))
 
+    # Where each killer lunges in from (screen x at the start of the lunge).
+    JS_FROM = {"Bonnie": 330, "Chica": 950, "Freddy": 800, "Foxy": -260, "Golden": SCREEN_W // 2}
+
+    def _ghost(self, surface, color):
+        key = (id(surface), color)
+        g = self.js_ghosts.get(key)
+        if g is None:
+            g = self.js_ghosts[key] = tinted(surface, color)
+        return g
+
     def draw_jumpscare(self, screen):
         st = self.st
         who = st.killer
         t = self.js_t
-        if st.power_out:
+        frames = self.assets.jumpscares.get(who)
+        power_out = st.power_out is not None
+
+        # Background: the office (or darkness), shaking with the hit.
+        if power_out or who == "Golden":
             screen.fill((0, 0, 0))
         else:
             self.draw_office(screen)
-            dark = pygame.Surface((SCREEN_W, SCREEN_H))
-            dark.fill((90, 80, 80))
-            screen.blit(dark, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
-        frames = self.assets.jumpscares.get(who)
+            screen.fill((105, 84, 84), special_flags=pygame.BLEND_RGB_MULT)
         if not frames:
             return
-        frame = frames[int(t * 16) % len(frames)] if who != "Golden" else frames[0]
+
         if who == "Golden":
-            scale = 1.0
-            shake = (0, 0)
-        elif who == "Foxy":
-            k = min(1.0, t / 0.22)
-            scale = 0.35 + 0.8 * k
-            shake = (random.randint(-14, 14), random.randint(-10, 10)) if k >= 1 else (0, 0)
-        else:
-            scale = min(1.12, 0.85 + t * 2.2)
-            shake = (random.randint(-18, 18), random.randint(-12, 12))
-        img = frame.surface
-        if scale != 1.0:
-            img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
-        ax, ay = frame.anchor[0] * scale, frame.anchor[1] * scale
-        cx = SCREEN_W // 2
+            frame = frames[0]
+            pulse = 1.0 + 0.015 * math.sin(t * 50)
+            self._blit_scaled(screen, frame, SCREEN_W // 2, SCREEN_H // 2, pulse)
+            self.static(screen, 35 + 30 * abs(math.sin(t * 23)))
+            return
+
+        lunge = 0.2 if who == "Foxy" else 0.09
+        k = min(1.0, t / lunge)
+        e = 1 - (1 - k) ** 3
+        start_x = 300 if (who == "Freddy" and power_out) else self.JS_FROM.get(who, SCREEN_W // 2)
+        cx = start_x + (SCREEN_W // 2 - start_x) * e
+        cy = SCREEN_H * 0.47 + (1 - e) * 150
         if who == "Foxy":
-            cx = int(-200 + (SCREEN_W // 2 + 200) * min(1.0, t / 0.22))
-        cy = int(SCREEN_H * 0.47)
-        screen.blit(img, (int(cx - ax + shake[0]), int(cy - ay + shake[1])))
-        if who == "Golden":
-            self.static(screen, 40 + 40 * math.sin(t * 30))
-        elif random.random() < 0.25:
-            self.static(screen, 50)
+            scale = 0.35 + 0.75 * e
+        else:
+            scale = 0.72 + 0.36 * e
+        if k >= 1:
+            # Thrashing: jitter in size and position, fading out a little.
+            amp = 1.0 - 0.35 * min(1.0, (t - lunge) / JUMPSCARE_TIME)
+            scale += 0.035 * math.sin(t * 47) + random.uniform(-0.02, 0.02)
+            cx += random.uniform(-20, 20) * amp
+            cy += random.uniform(-14, 14) * amp
+            screen.scroll(random.randint(-10, 10), random.randint(-6, 6))
+        frame = frames[int(t * 15) % len(frames)]
+        x, y, img = self._blit_scaled(screen, frame, cx, cy, scale)
+
+        # Colour-split ghosts that make the image tear.
+        if k >= 1 and random.random() < 0.7:
+            for color, dx in (((150, 0, 0), random.randint(6, 16)), ((0, 70, 110), -random.randint(6, 16))):
+                ghost = self._ghost(img, color) if img is frame.surface else tinted(img, color)
+                screen.blit(ghost, (x + dx, y + random.randint(-4, 4)), special_flags=pygame.BLEND_RGB_ADD)
+        # Impact flash.
+        if t < 0.07:
+            flash = pygame.Surface((SCREEN_W, SCREEN_H))
+            flash.fill((255, 255, 255))
+            flash.set_alpha(int(110 * (1 - t / 0.07)))
+            screen.blit(flash, (0, 0))
+        if random.random() < 0.3:
+            self.static(screen, random.randint(30, 70))
+
+    def _blit_scaled(self, screen, frame, cx, cy, scale):
+        img = frame.surface
+        if abs(scale - 1.0) > 0.005:
+            img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
+        x = int(cx - frame.anchor[0] * scale)
+        y = int(cy - frame.anchor[1] * scale)
+        screen.blit(img, (x, y))
+        return x, y, img
 
 
 # --------------------------------------------------------------------------
