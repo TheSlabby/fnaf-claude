@@ -136,7 +136,7 @@ class Assets:
         ]
         yield
         for name in ("Freddy", "Bonnie", "Chica", "Foxy"):
-            self.portraits[name] = rc(name, 52, body=False)
+            self.portraits[name] = grime(rc(name, 52, body=False), 1.05)
             yield
         yield
 

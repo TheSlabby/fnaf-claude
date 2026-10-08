@@ -1116,6 +1116,7 @@ class CustomNightScene(Scene):
 
     def draw(self, screen):
         screen.fill((0, 0, 0))
+        self.static(screen, 14)
         draw_text(screen, "Customize Night", (SCREEN_W // 2, 60), 60, (240, 240, 240), anchor="center", bold=True)
         self.rects = {}
         for i, name in enumerate(CHARACTERS):
