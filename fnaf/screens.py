@@ -314,8 +314,12 @@ def _crease(surf, a, b, rng, strength=1.0, jitter=1.2, spread=10):
         t = i / n
         off = clamp(off + rng.uniform(-jitter, jitter), -3, 3)
         pts.append((x0 + (x1 - x0) * t + nx * off, y0 + (y1 - y0) * t + ny * off))
-    lay = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+    m = spread + 6
+    bx = int(min(x0, x1)) - m
+    by = int(min(y0, y1)) - m
+    lay = pygame.Surface((int(abs(x1 - x0)) + 2 * m + 1, int(abs(y1 - y0)) + 2 * m + 1), pygame.SRCALPHA)
     lay.fill((0, 0, 0, 0))
+    pts = [(px - bx, py - by) for px, py in pts]
     # broad shading: one side of the fold faces away from the light
     for d in range(1, spread + 1):
         a_ = int(30 * strength * (1 - d / (spread + 1)) ** 1.5)
@@ -324,7 +328,7 @@ def _crease(surf, a, b, rng, strength=1.0, jitter=1.2, spread=10):
     for d, col, al in ((-3, WHITE, 16), (-2, WHITE, 34), (-1, WHITE, 52), (0, (30, 22, 14), 96),
                        (1, (30, 22, 14), 60), (2, (30, 22, 14), 24)):
         pygame.draw.lines(lay, col + (int(al * strength),), False, [(px + nx * d, py + ny * d) for px, py in pts], 1)
-    surf.blit(lay, (0, 0))
+    surf.blit(lay, (bx, by))
 
 
 def _wrinkles(surf, rect, rng, count, strength=0.6):
@@ -634,91 +638,92 @@ def _news_article(ink, x, y, w, bottom, head, deck, byline, paras, rng, head_siz
 def _news_layout(ink, rng):
     PW, PH = ink.get_size()
     m = 26
-    I = NEWS_INK
+    K = NEWS_INK
     # -- masthead ----------------------------------------------------------
-    pygame.draw.line(ink, I, (m, 16), (PW - m, 16), 1)
-    _text(ink, "The Daily Clarion", (PW / 2, 60), "serif", 76, I, bold=True, anchor="center", squeeze=0.94)
-    for ex, al in ((m, "left"), (PW - m - 168, "right")):
-        pygame.draw.rect(ink, I, (ex, 26, 168, 64), 1)
-    _text(ink, "LATE CITY EDITION", (m + 84, 36), "sans", 12, I, bold=True, anchor="midtop")
-    _text(ink, "Classified Advertising", (m + 84, 53), "serif", 13, I, italic=True, anchor="midtop")
-    _text(ink, "Section B", (m + 84, 70), "serif", 12, I, anchor="midtop")
+    pygame.draw.line(ink, K, (m, 16), (PW - m, 16), 1)
+    _text(ink, "The Daily Clarion", (PW / 2, 60), "serif", 76, K, bold=True, anchor="center", squeeze=0.94)
+    for ex in (m, PW - m - 168):
+        pygame.draw.rect(ink, K, (ex, 26, 168, 64), 1)
+    _text(ink, "LATE CITY EDITION", (m + 84, 36), "sans", 12, K, bold=True, anchor="midtop")
+    _text(ink, "Classified Advertising", (m + 84, 53), "serif", 13, K, italic=True, anchor="midtop")
+    _text(ink, "Section B", (m + 84, 70), "serif", 12, K, anchor="midtop")
     rx = PW - m - 84
-    _text(ink, "WEATHER", (rx, 33), "sans", 12, I, bold=True, anchor="midtop")
-    _text(ink, "Clear and cold tonight.", (rx, 50), "serif", 12, I, anchor="midtop")
-    _text(ink, "Low 38. Wind light.", (rx, 66), "serif", 12, I, anchor="midtop")
-    pygame.draw.rect(ink, I, (m, 100, PW - 2 * m, 3))
-    pygame.draw.line(ink, I, (m, 106), (PW - m, 106), 1)
-    _text(ink, "VOL. LXXI — No. 233", (m + 2, 111), "serif", 12, I)
-    _text(ink, "CLASSIFIED ADVERTISING  •  HELP WANTED  •  NOTICES", (PW / 2, 111), "serif", 12, I,
+    _text(ink, "WEATHER", (rx, 33), "sans", 12, K, bold=True, anchor="midtop")
+    _text(ink, "Clear and cold tonight.", (rx, 50), "serif", 12, K, anchor="midtop")
+    _text(ink, "Low 38. Wind light.", (rx, 66), "serif", 12, K, anchor="midtop")
+    pygame.draw.rect(ink, K, (m, 100, PW - 2 * m, 3))
+    pygame.draw.line(ink, K, (m, 106), (PW - m, 106), 1)
+    _text(ink, "VOL. LXXI — No. 233", (m + 2, 111), "serif", 12, K)
+    _text(ink, "CLASSIFIED ADVERTISING  •  HELP WANTED  •  NOTICES", (PW / 2, 111), "serif", 12, K,
           anchor="midtop")
-    _text(ink, "35 CENTS", (PW - m - 2, 111), "serif", 12, I, anchor="topright")
-    pygame.draw.line(ink, I, (m, 129), (PW - m, 129), 1)
+    _text(ink, "35 CENTS", (PW - m - 2, 111), "serif", 12, K, anchor="topright")
+    pygame.draw.line(ink, K, (m, 129), (PW - m, 129), 1)
     # -- columns -------------------------------------------------------------
     top, bottom = 142, PH - 22
     cw = 198
     lx, rxc = m, PW - m - cw
     cx0, cx1 = m + cw + 18, PW - m - cw - 18
     for x in (m + cw + 9, PW - m - cw - 9):
-        pygame.draw.line(ink, I, (x, top), (x, bottom), 1)
+        pygame.draw.line(ink, K, (x, top), (x, bottom), 1)
     # left column: the reopening
     y = _news_article(ink, lx, top, cw, bottom - 130, _ART1_HEAD, _ART1_DECK, _ART1_BY, _ART1, rng,
                       cont="See PIZZERIA, Page B4")
     y = max(y, bottom - 120)
-    pygame.draw.line(ink, I, (lx, y), (lx + cw, y), 2)
+    pygame.draw.line(ink, K, (lx, y), (lx + cw, y), 2)
     y += 8
-    y, _ = _para(ink, [("Costume Shop to Expand", True, False)], lx, y, cw, "serif", 17, I, justify=False,
+    y, _ = _para(ink, [("Costume Shop to Expand", True, False)], lx, y, cw, "serif", 17, K, justify=False,
                  align="center")
     y += 4
     _para(ink, "A downtown costume rental shop will double its floor space next month. “Mascot suits "
                "are big these days,” the owner said. “Everybody wants to be somebody else.”",
-          lx, y, cw, "serif", 12, I, lead=13.6, indent=10, bottom=bottom)
+          lx, y, cw, "serif", 12, K, lead=13.6, indent=10, bottom=bottom)
     # right column: the inspection, then briefs
-    y = _news_article(ink, rxc, top, cw, bottom - 196, _ART2_HEAD, _ART2_DECK, None, _ART2, rng, head_size=22)
+    y = _news_article(ink, rxc, top, cw, bottom - 196, _ART2_HEAD, _ART2_DECK, None, _ART2, rng, head_size=22,
+                      cont="See INSPECTION, Page B2")
     y = max(y + 6, bottom - 190)
-    pygame.draw.rect(ink, I, (rxc, y, cw, bottom - y), 1)
-    _text(ink, "IN BRIEF", (rxc + cw / 2, y + 7), "sans", 13, I, bold=True, anchor="midtop")
+    pygame.draw.rect(ink, K, (rxc, y, cw, bottom - y), 1)
+    _text(ink, "IN BRIEF", (rxc + cw / 2, y + 7), "sans", 13, K, bold=True, anchor="midtop")
     y += 26
     for lead_in, body in _BRIEFS:
-        y, _ = _para(ink, [(lead_in, True, False), (body, False, False)], rxc + 8, y, cw - 16, "serif", 12, I,
+        y, _ = _para(ink, [(lead_in, True, False), (body, False, False)], rxc + 8, y, cw - 16, "serif", 12, K,
                      lead=13.6, bottom=bottom - 4)
         y += 5
     # -- the ad ---------------------------------------------------------------
     aw = cx1 - cx0
-    ad = pygame.Rect(cx0, top + 2, aw, 448)
-    pygame.draw.rect(ink, I, ad, 4)
-    pygame.draw.rect(ink, I, ad.inflate(-14, -14), 1)
-    _text(ink, "HELP WANTED", (ad.centerx, ad.y + 66), "sans", 112, I, bold=True, anchor="center",
+    ad = pygame.Rect(cx0, top + 2, aw, 452)
+    pygame.draw.rect(ink, K, ad, 4)
+    pygame.draw.rect(ink, K, ad.inflate(-14, -14), 1)
+    _text(ink, "HELP WANTED", (ad.centerx, ad.y + 66), "sans", 112, K, bold=True, anchor="center",
           squeeze=0.86, fit=aw - 44)
-    pygame.draw.line(ink, I, (ad.x + 22, ad.y + 122), (ad.right - 22, ad.y + 122), 2)
+    pygame.draw.line(ink, K, (ad.x + 22, ad.y + 122), (ad.right - 22, ad.y + 122), 2)
     ph = pygame.Rect(ad.x + 22, ad.y + 134, 304, 226)
     ink.blit(_stage_photo(ph.w, ph.h, rng), ph)
-    pygame.draw.rect(ink, I, ph, 1)
-    _text(ink, "Freddy and friends welcome guests of all ages.", (ph.centerx, ph.bottom + 5), "serif", 12, I,
+    pygame.draw.rect(ink, K, ph, 1)
+    _text(ink, "Freddy and friends welcome guests of all ages.", (ph.centerx, ph.bottom + 5), "serif", 12, K,
           italic=True, anchor="midtop", fit=ph.w)
     tx, tw = ph.right + 18, ad.right - 22 - ph.right - 18
     y = ph.y - 3
-    y, _ = _para(ink, AD_COPY_1, tx, y, tw, "serif", 19, I, lead=21.5, justify=False)
+    y, _ = _para(ink, AD_COPY_1, tx, y, tw, "serif", 19, K, lead=21.5, justify=False)
     y += 9
     y, _ = _para(ink, [("Security guard needed.", True, False), (AD_COPY_2, False, False)], tx, y, tw,
-                 "serif", 19, I, lead=21.5, justify=False)
+                 "serif", 19, K, lead=21.5, justify=False)
     y += 8
-    _text(ink, "$120 a week.", (tx, y), "serif", 36, I, bold=True)
-    pygame.draw.line(ink, I, (ad.x + 22, ad.bottom - 66), (ad.right - 22, ad.bottom - 66), 1)
-    _text(ink, "Call 1-888-FAZBEAR", (ad.centerx, ad.bottom - 46), "sans", 27, I, bold=True, anchor="center")
-    _text(ink, "Not responsible for injury or dismemberment.", (ad.centerx, ad.bottom - 22), "serif", 13, I,
+    _text(ink, "$120 a week.", (tx, y), "serif", 36, K, bold=True)
+    pygame.draw.line(ink, K, (ad.x + 22, ad.bottom - 66), (ad.right - 22, ad.bottom - 66), 1)
+    _text(ink, "Call 1-888-FAZBEAR", (ad.centerx, ad.bottom - 46), "sans", 27, K, bold=True, anchor="center")
+    _text(ink, "Not responsible for injury or dismemberment.", (ad.centerx, ad.bottom - 21), "serif", 14, K,
           italic=True, anchor="center")
     # -- classifieds under the ad -----------------------------------------
     y0 = ad.bottom + 12
-    pygame.draw.line(ink, I, (cx0, y0 - 5), (cx1, y0 - 5), 1)
+    pygame.draw.line(ink, K, (cx0, y0 - 5), (cx1, y0 - 5), 1)
     n = len(_CLASSIFIEDS)
     gw = (aw - 2 * 14) / n
     for i, (lead_in, body) in enumerate(_CLASSIFIEDS):
         x = cx0 + i * (gw + 14)
         if i:
-            pygame.draw.line(ink, I, (x - 7, y0), (x - 7, bottom), 1)
-        _para(ink, [(lead_in + " —", True, False), (body, False, False)], x, y0, gw, "serif", 12, I,
-              lead=13.4, bottom=bottom + 2)
+            pygame.draw.line(ink, K, (x - 7, y0), (x - 7, bottom), 1)
+        _para(ink, [(lead_in + " —", True, False), (body, False, False)], x, y0, gw, "serif", 13, K,
+              lead=14.6, bottom=bottom + 3)
 
 
 def newspaper():
@@ -862,7 +867,8 @@ def _check_card(kind, rng):
           bold=True, scale=S)
     _text(big, "A magical place for kids and grown-ups alike", (108, 84), "serif", 12, CHECK_INK, italic=True,
           scale=S)
-    _text(big, "No. 0512" if kind == "week" else "No. 0519", (cw - 34, 26), "mono", 22, (150, 36, 32), bold=True,
+    serial = "0512" if kind == "week" else "0519"
+    _text(big, "No. " + serial, (cw - 34, 26), "mono", 22, (150, 36, 32), bold=True,
           anchor="topright", scale=S)
     _text(big, "DATE", (cw - 268, 74), "sans", 12, CHECK_INK, bold=True, scale=S)
     pen.line(CHECK_INK, (cw - 226, 88), (cw - 34, 88), 1)
@@ -878,11 +884,13 @@ def _check_card(kind, rng):
     _text(big, "$", (bx - 10, by + bh / 2), "serif", 34, CHECK_INK, bold=True, anchor="midright", scale=S)
     pen.rect((228, 240, 230), bx, by, bw, bh)
     pen.rect(CHECK_INK, bx, by, bw, bh, width=1.5)
-    _text(big, "**120.50**", (bx + bw / 2, by + bh / 2 + 1), "mono", 28, TYPE_INK, bold=True, anchor="center",
+    _text(big, "**120.50**" if kind == "week" else "****0.50**", (bx + bw / 2, by + bh / 2 + 1), "mono", 28,
+          TYPE_INK, bold=True, anchor="center",
           fit=bw - 10, scale=S)
     # amount in words
     pen.line(CHECK_INK, (30, 214), (cw - 124, 214), 1)
-    r = _text(big, "One hundred twenty dollars and 50/100", (36, 211), "mono", 23, TYPE_INK, bold=True,
+    words = "One hundred twenty dollars and 50/100" if kind == "week" else "Zero dollars and 50/100"
+    r = _text(big, words, (36, 211), "mono", 23, TYPE_INK, bold=True,
               anchor="bottomleft", scale=S)
     x = r.right / S + 10
     while x < cw - 140:
@@ -908,7 +916,7 @@ def _check_card(kind, rng):
           scale=S)
     _signature(big, (cw - 352) * S, 300 * S, 300 * S, 50 * S, random.Random(41), (22, 30, 92), 3.2 * S / 2)
     # MICR line
-    _micr(big, 92, 346, ["T", "071900948", "T", "  ", "2209 7731", "U", "0512"], (40, 40, 44), S)
+    _micr(big, 92, 346, ["T", "071900948", "T", "  ", "2209 7731", "U", serial], (40, 40, 44), S)
     card = pygame.transform.smoothscale(big, (cw, ch))
     _multiply_noise(card, rng, [(70, 232), (2, 238)])
     return card
@@ -1062,7 +1070,7 @@ def paycheck(kind="week"):
     """End-of-week card on a dark desk (opaque, SCREEN_W x SCREEN_H).
 
     kind: "week"     paycheck for $120.50, memo "Good job! Week 1"
-          "overtime" the same check (memo "Night 6") with an "overtime: $0.50" note
+          "overtime" the original's $0.50 overtime check (memo "Night 6")
           "fired"    pink NOTICE OF TERMINATION slip
           "custom"   night shift log stamped SHIFT COMPLETE
     The card sits a little below centre, leaving ~150 px clear at the top
@@ -1080,7 +1088,7 @@ def paycheck(kind="week"):
         card = _check_card(kind, rng)
         _place_card(bg, card, center, 1.6)
         if kind == "overtime":
-            note = _sticky_note([("overtime:", 0.9), ("$0.50", 1.15)], rng, size=(196, 146))
+            note = _sticky_note([("overtime", 0.95), ("Night 6", 1.1)], rng, size=(196, 146))
             _place_card(bg, note, (center[0] + 418, center[1] - 186), -8, shadow_offset=(6, 9))
     elif kind == "fired":
         _place_card(bg, _pink_slip(rng), center, -1.4)

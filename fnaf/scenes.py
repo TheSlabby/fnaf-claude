@@ -271,36 +271,8 @@ class NewspaperScene(Scene):
             self.game.change(NightIntroScene(self.game, 1))
 
     def draw(self, screen):
-        screen.fill((0, 0, 0))
-        paper = pygame.Rect(0, 0, 760, 560)
-        paper.center = (SCREEN_W // 2, SCREEN_H // 2)
-        pygame.draw.rect(screen, (196, 190, 170), paper)
-        pygame.draw.rect(screen, (120, 114, 96), paper, 4)
-        draw_text(screen, "HELP WANTED", (paper.centerx, paper.y + 60), 86, (30, 28, 24), anchor="center", bold=True)
-        pygame.draw.line(screen, (60, 56, 50), (paper.x + 40, paper.y + 110), (paper.right - 40, paper.y + 110), 3)
-        lines = [
-            "Freddy Fazbear's Pizza, a magical place for kids",
-            "and grown-ups alike, is looking for a",
-            "NIGHT SECURITY GUARD.",
-            "",
-            "Monitor the cameras, make sure nothing gets",
-            "damaged or stolen. Hours: 12 AM to 6 AM.",
-            "",
-            "$120 a week.  Start immediately.",
-            "Not responsible for injury or dismemberment.",
-        ]
-        y = paper.y + 150
-        for ln in lines:
-            draw_text(screen, ln, (paper.centerx, y), 32, (40, 36, 30), anchor="center", bold=ln.isupper())
-            y += 38
-        # A little Freddy face in the corner of the ad.
-        portrait = self.assets.portraits.get("Freddy")
-        if portrait:
-            img = portrait.surface.copy()
-            img.fill((200, 190, 160), special_flags=pygame.BLEND_RGB_MULT)
-            portrait_pos = (paper.right - 95, paper.bottom - 90)
-            screen.blit(img, (portrait_pos[0] - portrait.anchor[0], portrait_pos[1] - portrait.anchor[1]))
-        self.static(screen, 26)
+        screen.blit(self.assets.screen_image("newspaper"), (0, 0))
+        self.static(screen, 18)
         if self.t > 6.5:
             fade = 255 * min(1.0, (self.t - 6.5) / 1.0)
         elif self.t < 0.8:
@@ -1037,16 +1009,16 @@ class GameOverScene(Scene):
         if self.t < 2.2:
             self.static(screen, 255)
             return
-        # The guard, stuffed into a suit. We just see the suit's eyes in a dark room.
+        # The guard, stuffed into a suit.
         a = int(255 * min(1.0, (self.t - 2.2) / 0.8))
-        portrait = self.assets.portraits.get("Freddy_dead")
-        if portrait:
-            img = portrait.surface.copy()
+        img = self.assets.screen_image("game_over")
+        if a < 255:
+            img = img.copy()
             img.set_alpha(a)
-            screen.blit(img, (SCREEN_W // 2 - portrait.anchor[0], SCREEN_H // 2 - 40 - portrait.anchor[1]))
+        screen.blit(img, (0, 0))
         draw_text(screen, "GAME OVER", (SCREEN_W - 60, SCREEN_H - 60), 76, (230, 230, 230), anchor="bottomright",
                   bold=True, alpha=a)
-        self.static(screen, 60 if self.t < 3 else 30)
+        self.static(screen, 60 if self.t < 3 else 26)
 
 
 class CrashScene(Scene):
@@ -1068,24 +1040,18 @@ class CrashScene(Scene):
 
 
 class EndingScene(Scene):
-    TEXT = {
-        "week": ("Congratulations!", ["You survived the week at Freddy Fazbear's Pizza.",
-                                      "", "PAY TO THE ORDER OF:  Night Security", "One hundred twenty dollars and 50/100",
-                                      "", "The 6th Night is now unlocked."]),
-        "overtime": ("Overtime!", ["You worked an extra night. Your dedication is noted.",
-                                   "", "PAY TO THE ORDER OF:  Night Security", "Fifty cents (overtime)",
-                                   "", "The Custom Night is now unlocked."]),
-        "fired": ("NOTICE OF TERMINATION", ["Reason: tampering with the animatronics,",
-                                            "general unprofessionalism, and odor.", "",
-                                            "...but you beat 4/20 mode. Respect."]),
-        "custom": ("Shift complete", ["You survived the custom night.", "",
-                                      "Try all four at level 20 for the final star."]),
+    CAPTIONS = {
+        "week": ("Congratulations!", "You survived the week.  The 6th Night is now unlocked."),
+        "overtime": ("Overtime!", "Your dedication has been noted.  The Custom Night is now unlocked."),
+        "fired": ("4/20 MODE COMPLETE", "...that's one way to leave a job."),
+        "custom": ("Shift complete", "Set all four to 20 for the final star."),
     }
 
     def __init__(self, game, kind):
         super().__init__(game)
         self.kind = kind
         self.t = 0.0
+        self.image = self.assets.screen_image(kind)
         self.sounds.loop("music", "menu", 0.4)
 
     def handle(self, event):
@@ -1096,20 +1062,17 @@ class EndingScene(Scene):
         self.t += dt
 
     def draw(self, screen):
-        screen.fill((0, 0, 0))
-        title, lines = self.TEXT[self.kind]
-        card = pygame.Rect(0, 0, 820, 440)
-        card.center = (SCREEN_W // 2, SCREEN_H // 2)
-        pink = self.kind == "fired"
-        pygame.draw.rect(screen, (230, 200, 210) if pink else (200, 214, 196), card)
-        pygame.draw.rect(screen, (90, 90, 90), card, 4)
-        draw_text(screen, title, (card.centerx, card.y + 60), 60, (30, 30, 30), anchor="center", bold=True)
-        y = card.y + 140
-        for ln in lines:
-            draw_text(screen, ln, (card.centerx, y), 32, (40, 40, 40), anchor="center")
-            y += 40
+        screen.blit(self.image, (0, 0))
+        title, sub = self.CAPTIONS[self.kind]
+        draw_text(screen, title, (SCREEN_W // 2, 62), 64, (240, 240, 240), anchor="center", shadow=(0, 0, 0))
+        draw_text(screen, sub, (SCREEN_W // 2, 112), 28, (205, 205, 205), anchor="center", shadow=(0, 0, 0))
         if self.t > 1.5:
-            draw_text(screen, "click to continue", (SCREEN_W // 2, SCREEN_H - 40), 24, (140, 140, 140), anchor="center")
+            draw_text(screen, "click to continue", (SCREEN_W // 2, SCREEN_H - 34), 24, (150, 150, 150),
+                      anchor="center")
+        if self.t < 1.0:
+            veil = pygame.Surface((SCREEN_W, SCREEN_H))
+            veil.set_alpha(int(255 * (1 - self.t)))
+            screen.blit(veil, (0, 0))
 
 
 class CustomNightScene(Scene):

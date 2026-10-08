@@ -56,6 +56,26 @@ class Assets:
         self.jumpscares = {}
         self.menu_faces = []
         self.portraits = {}
+        self.screens = {}
+
+    def screen_image(self, kind):
+        """Full-screen interstitial art: 'newspaper', 'game_over' or a paycheck kind."""
+        img = self.screens.get(kind)
+        if img is None:
+            from . import screens
+            if kind == "newspaper":
+                img = screens.newspaper()
+            elif kind == "game_over":
+                img = screens.game_over()
+            else:
+                img = screens.paycheck(kind)
+            self.screens[kind] = img
+        return img
+
+    def _build_screens(self):
+        for kind in ("game_over", "newspaper"):
+            self.screen_image(kind)
+            yield
 
     def build(self):
         """Yields (fraction_done, label) while generating assets."""
@@ -64,7 +84,8 @@ class Assets:
             ("Recording sounds", 0.30, self.sounds.build()),
             ("Building the office", 0.18, self.office.build()),
             ("Wiring the cameras", 0.30, self.feeds.build()),
-            ("Waking the animatronics", 0.18, self._build_characters()),
+            ("Waking the animatronics", 0.14, self._build_characters()),
+            ("Printing the paperwork", 0.04, self._build_screens()),
         ]
         done = 0.0
         for label, weight, gen in stages:
@@ -111,7 +132,6 @@ class Assets:
         for name in ("Freddy", "Bonnie", "Chica", "Foxy"):
             self.portraits[name] = rc(name, 52, body=False)
             yield
-        self.portraits["Freddy_dead"] = grime(rc("Freddy", 130, body=False, eyes="human", mouth=0.1), 0.75)
         yield
 
 
