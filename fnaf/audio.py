@@ -445,8 +445,17 @@ class _Synth:
             y.extend([b + g * (c - a) for a, b, c in zip(x[i:i + D], x[i - D:i], y[i - D:i])])
         return y
 
-    def reverb(self, x, mix=0.25, t60=1.0, size=1.0, tail=0.0, combs=4, lpf=3500.0, aps=2):
+    def reverb(self, x, **kw):
         """Small Schroeder reverb (block-processed feedback combs + allpasses)."""
+        g = self.reverb_g(x, **kw)
+        try:
+            while True:
+                next(g)
+        except StopIteration as stop:
+            return stop.value
+
+    def reverb_g(self, x, mix=0.25, t60=1.0, size=1.0, tail=0.0, combs=4, lpf=3500.0, aps=2):
+        """Generator version of ``reverb`` (yields between stages)."""
         sr = self.sr
         src = x + [0.0] * self.ns(tail) if tail > 0 else x
         n = len(src)
@@ -458,10 +467,12 @@ class _Synth:
             g = 10.0 ** (-3.0 * D / (t60 * sr))
             y = self._fbcomb(src, D, g)
             wet = list(map(_add, wet, y))
+            yield
         for ms in (5.0, 1.7)[:aps]:
             D = max(1, int(ms * sr / 1000.0))
             if D < n:
                 wet = self._allpass(wet, D, 0.7)
+        yield
         wet = self.lp(wet, lpf)
         k = mix / combs
         return [a + k * b for a, b in zip(src, wet)]
@@ -585,6 +596,8 @@ class _Synth:
                             (207.7, 0.05, 1, 3.9)):
             o = lo.losc(pad, f, N4, ph / TAU)
             drone = list(map(_add, drone, map(_mul, o, lo.lfo(N4, c, ph, 0.0, a))))
+            if f == 110.0:
+                yield
         drone = lo.lp_var(drone, lo.lfo(N4, 1, 1.0, 260.0, 1100.0, 8), circular=True)
         yield
         wind = lo.svf_bp(lo.noise(N4, 0.22), lo.lfo(N4, 2, 0.0, 180.0, 480.0, 8), 0.7,
@@ -641,7 +654,7 @@ class _Synth:
             S.add_at(buf, S.thud(0.2, 160.0, 90.0, 0.04), i0, 0.5)
             S.add_at(buf, S.burst(0.05, 0.01, lp=900.0), i0, 1.2)
         yield
-        buf = S.reverb(buf, mix=0.35, t60=0.6, size=0.7, combs=2, aps=1)
+        buf = yield from S.reverb_g(buf, mix=0.35, t60=0.6, size=0.7, combs=2, aps=1)
         out = S.lp_circ(S.drive(S.fold(buf, N), 1.6), 4500.0)
         return out, 2
 
@@ -693,7 +706,7 @@ class _Synth:
                 S.add_at(buf, note(m, 0.36),
                          S.ns(0.015 + (4 * bar + bt) * beat + rng.uniform(0.0, 0.015)))
         yield
-        buf = S.reverb(buf, mix=0.3, t60=0.9, size=0.8, combs=2, aps=1, lpf=5000.0)
+        buf = yield from S.reverb_g(buf, mix=0.3, t60=0.9, size=0.8, combs=2, aps=1, lpf=5000.0)
         out = S.fold(buf, N)
         return out, 1
 
@@ -797,9 +810,12 @@ class _Synth:
         S = self
         sr = S.sr
         mix = [0.0] * n
-        for ratio, amp, tab, ph in voices:
+        for k, (ratio, amp, tab, ph) in enumerate(voices):
             v = S.osc(tab, f0, ph=ph, ratio=ratio)
             mix = [a + amp * b for a, b in zip(mix, v)]
+            if k == 3:
+                yield
+        yield
         nz = S.noise(n)
         for f, bw, g in noise_bands:
             r = S.reson(nz, f, bw)
@@ -810,6 +826,7 @@ class _Synth:
         s = _sin
         mix = [v * (1.0 - ad + ad * s(wa * i)) * (1.0 - rd + rd * s(wr * i))
                for i, v in enumerate(mix)]
+        yield
         out = S.formants(mix, formants, dry=0.35)
         return S.drive(out, drive)
 
@@ -832,7 +849,7 @@ class _Synth:
         voices = ((1.0, 1.0, sa, 0.0), (1.006, 0.8, sa, 0.3), (0.994, 0.7, sa, 0.6),
                   (1.335, 0.45, sa, 0.2), (1.414, 0.4, sa, 0.9), (2.013, 0.35, sb, 0.1),
                   (0.5, 0.55, sq, 0.5))
-        x = S._shriek(n, f0, voices, ((2900.0, 2000.0, 1.6), (1200.0, 700.0, 0.8)),
+        x = yield from S._shriek(n, f0, voices, ((2900.0, 2000.0, 1.6), (1200.0, 700.0, 0.8)),
                       ((950.0, 450.0, 0.9), (2600.0, 900.0, 1.3), (3900.0, 1500.0, 0.7)),
                       10.0, (61.0, 0.35), (157.0, 0.35))
         yield
@@ -866,7 +883,7 @@ class _Synth:
         voices = ((1.0, 1.0, sa, 0.0), (1.009, 0.8, sa, 0.4), (0.991, 0.7, sa, 0.8),
                   (0.5, 0.8, sq, 0.2), (0.333, 0.45, sa, 0.6), (1.5, 0.35, sa, 0.1),
                   (2.37, 0.25, sa, 0.7))
-        x = S._shriek(n, f0, voices, ((1500.0, 900.0, 1.0), (400.0, 300.0, 0.6)),
+        x = yield from S._shriek(n, f0, voices, ((1500.0, 900.0, 1.0), (400.0, 300.0, 0.6)),
                       ((550.0, 200.0, 1.0), (1050.0, 300.0, 0.8), (2400.0, 600.0, 0.5)),
                       10.0, (37.0, 0.4), (47.0, 0.5))
         yield
@@ -875,7 +892,7 @@ class _Synth:
         S.add_at(x, S.thud(0.6, 70.0, 32.0, 0.2), 0, 0.7)
         t = _tanh
         x = [t(1.8 * v) for v in x]
-        x = S.reverb(x, mix=0.3, t60=1.4, size=1.2, combs=3)
+        x = yield from S.reverb_g(x, mix=0.3, t60=1.4, size=1.2, combs=3)
         x = S.hp(x, 45.0)
         return S.finish(x, 0.001, 0.05), 2
 
@@ -1044,6 +1061,8 @@ class _Synth:
             i0 = S.ns(t0)
             seg = src[i0:i0 + m]
             src[i0:i0 + m] = map(_add, seg, map(_mul, map(_add, sig, nz), env))
+            if v % 3 == 2:
+                yield
         yield
         va = S.formants(src, ((1000.0, 300.0, 1.0), (1700.0, 350.0, 1.2), (3000.0, 500.0, 0.9)))
         vi = S.formants(src, ((450.0, 200.0, 0.5), (2600.0, 400.0, 1.2), (3400.0, 500.0, 0.7)))
@@ -1053,7 +1072,7 @@ class _Synth:
         kids = S.hp([b + (a - b) * w + c for a, b, w, c in zip(va, vi, wa, crowd)], 600.0)
         yield
         S.add_at(out, kids, k0, 1.5 * _peak(out) / (_peak(kids) or 1.0))
-        out = S.reverb(out, mix=0.22, t60=1.6, size=1.3)
+        out = yield from S.reverb_g(out, mix=0.22, t60=1.6, size=1.3)
         return S.finish(out, 0.001, 0.4), 2
 
     def r_powerdown(self):
@@ -1133,6 +1152,7 @@ class _Synth:
             g = gong(f)
             S.add_at(x, g, off)
             S.add_at(x, g, off + strikes * D, -1.0)
+            yield
         # Feedback comb with gain 1 turns one strike into an evenly spaced
         # train of ``strikes`` strikes (the negative copy ends the train).
         x = S._fbcomb(x, D, 1.0)
@@ -1232,6 +1252,7 @@ class _Synth:
                     fp *= 1.25 if question else 0.9
                 f0[i0:i0 + m] = [fp] * m
             t += rng.uniform(0.25, 0.55) * slow
+        yield
         # Smooth the control tracks: intonation, coarticulation, no clicks.
         f0 = list(map(_mul, S.lp(f0, 4.0, f0[0]), S.curve(n, 0.03, 0.98, 1.02)))
         amp = S.lp(amp, 30.0)
@@ -1239,16 +1260,18 @@ class _Synth:
         F = [S.lp(tr, 12.0, tr[0]) for tr in F]
         src = S.osc(S.glottal_tab(S.nh(f_mid * 1.6, 40)), f0)
         src = [a * u + h * z for a, u, h, z in zip(amp, src, asp, S.noise(n))]
+        yield
         out = list(cons)
         for tr, bw, g in zip(F, (90.0, 110.0, 160.0), (1.0, 0.7, 0.35)):
             out = list(map(_add, out, map(g.__mul__, S.reson_tv(src, tr, bw))))
+            yield
         return out
 
     def r_voice(self):
         S = self.sub(2)
         T = 5.0
         N = S.ns(T)
-        v = S._babble(T, 118.0)
+        v = yield from S._babble(T, 118.0)
         g = 1.0 / (_peak(v) or 1.0)
         x = [a * g + h for a, h in zip(v, S.noise(N, 0.025))]
         yield
@@ -1263,9 +1286,9 @@ class _Synth:
         rng = S.rng
         T = 4.0
         N = S.ns(T)
-        a = S._babble(T, 74.0, slow=1.6, fscale=0.85, lead=0.1, trail=0.2)
+        a = yield from S._babble(T, 74.0, slow=1.6, fscale=0.85, lead=0.1, trail=0.2)
         yield
-        b = S._babble(T, 52.0, slow=2.1, fscale=0.7, lead=0.3, trail=0.1)
+        b = yield from S._babble(T, 52.0, slow=2.1, fscale=0.7, lead=0.3, trail=0.1)
         yield
         ga = 1.0 / (_peak(a) or 1.0)
         gb = 0.8 / (_peak(b) or 1.0)
@@ -1275,7 +1298,8 @@ class _Synth:
         x = S.drive(x, 3.0)
         # Reverse reverb: tails folded onto the loop, then the whole thing is
         # played backwards so every syllable swells in out of nowhere.
-        x = S.fold(S.reverb(x, mix=0.6, t60=1.5, size=1.4, tail=1.5, combs=3, aps=1), N)
+        x = yield from S.reverb_g(x, mix=0.6, t60=1.5, size=1.4, tail=1.5, combs=3, aps=1)
+        x = S.fold(x, N)
         x.reverse()
         yield
         st = S.mul(S.hp_circ(S.noise(N), 1200.0), S.curve(N, 0.03, 0.05, 0.6, circular=True))
@@ -1354,11 +1378,11 @@ def render(name, rate=22050):
             next(gen)
     except StopIteration as stop:
         data, div, is_loop, peak = stop.value
-    L, R = data if isinstance(data, tuple) else (data, data)
+    stereo = isinstance(data, tuple)
+    L, R = data if stereo else (data, data)
     g = peak / (max(_peak(L), _peak(R)) or 1.0)
     L = [v * g for v in _upsample(L, up * div, is_loop)]
-    R = L if data is not None and not isinstance(data, tuple) else \
-        [v * g for v in _upsample(R, up * div, is_loop)]
+    R = [v * g for v in _upsample(R, up * div, is_loop)] if stereo else L
     return L, R, is_loop
 
 
@@ -1447,6 +1471,7 @@ class SoundBank:
                 continue
             try:
                 data, div, is_loop, peak = yield from _run_recipe(synth, name)
+                yield
                 snd = self._make_sound(data, div, is_loop, peak)
             except Exception as exc:  # a broken sound must never stop the game
                 print("audio: could not build %r: %s" % (name, exc), file=sys.stderr)
@@ -1557,9 +1582,9 @@ class SoundBank:
                 return
             ch.set_volume(v)
             if fade_ms and fade_ms > 0:
-                ch.play(snd, loops=-1, fade_ms=int(fade_ms))
+                ch.play(snd, -1, 0, int(fade_ms))  # loops, maxtime, fade_ms
             else:
-                ch.play(snd, loops=-1)
+                ch.play(snd, -1)
                 ch.set_volume(v)
             self._seq += 1
             st[1] = name

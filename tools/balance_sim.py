@@ -64,6 +64,7 @@ class Bot:
         self.reasons = {"L": set(), "R": set()}
         self.cam_step = 0
         self.extra = 0.0
+        self.hurry = None        # pending urgent check heard mid-action
         self.later = []          # [seconds, callback] reactions in flight
 
     # -- helpers -------------------------------------------------------------
@@ -101,7 +102,11 @@ class Bot:
             return
         if side not in self.plan:
             self.plan.insert(0, side)
-        self.wait = min(self.wait, self.rng.uniform(*REACTION))
+        react = self.rng.uniform(*REACTION)
+        if self.act is None:
+            self.wait = min(self.wait, react)
+        else:
+            self.hurry = react if self.hurry is None else min(self.hurry, react)
 
     # -- main loop -----------------------------------------------------------
     def step(self, dt):
@@ -134,6 +139,9 @@ class Bot:
         if self.short_on_power():
             lo, hi = lo * 2.5, hi * 2.5
         self.wait = self.rng.uniform(lo, hi)
+        if self.hurry is not None:      # footsteps heard mid-action: go check
+            self.wait = min(self.wait, self.hurry)
+            self.hurry = None
 
     def do_light(self, side, dt):
         st = self.st
