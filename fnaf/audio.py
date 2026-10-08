@@ -249,7 +249,6 @@ class _Synth:
 
     def reson_tv(self, x, fs, bw, step=16):
         """Resonator whose centre follows the per-sample list ``fs`` (unity peak gain)."""
-        n = len(x)
         r = _exp(-math.pi * bw / self.sr)
         c2 = r * r
         k = TAU / self.sr
@@ -267,10 +266,6 @@ class _Synth:
             y2 = y1
             y1 = y
         return out
-
-    def reson_circ(self, x, f, bw):
-        m = min(len(x), int(8.0 * self.sr / (math.pi * bw)) + 1)
-        return self.reson(x, f, bw, warm=x[-m:])
 
     def formants(self, x, specs, dry=0.0):
         """Parallel resonator bank: ``specs`` = ``(freq, bandwidth, gain)``."""
@@ -433,26 +428,54 @@ class _Synth:
             x = self.hp(x, hp)
         return x
 
-    def _fbcomb(self, x, D, g):
+    _CHUNK = 65536  # samples of work between yields inside long filters
+
+    def _fbcomb_g(self, x, D, g):
+        """Feedback comb ``y[n] = x[n] + g*y[n-D]``, processed D samples at a time."""
         y = x[:D]
+        nxt = self._CHUNK
         for i in range(D, len(x), D):
             y.extend([a + g * b for a, b in zip(x[i:i + D], y[i - D:i])])
+            if i > nxt:
+                nxt += self._CHUNK
+                yield
         return y
 
-    def _allpass(self, x, D, g):
+    def _allpass_g(self, x, D, g):
         y = [-g * v for v in x[:D]]
+        nxt = self._CHUNK
         for i in range(D, len(x), D):
             y.extend([b + g * (c - a) for a, b, c in zip(x[i:i + D], x[i - D:i], y[i - D:i])])
+            if i > nxt:
+                nxt += self._CHUNK
+                yield
         return y
+
+    def _lp_g(self, x, fc):
+        """Chunked one-pole low-pass (same result as ``lp``) that yields."""
+        out = []
+        y = 0.0
+        for i in range(0, len(x), self._CHUNK):
+            out.extend(self.lp(x[i:i + self._CHUNK], fc, y))
+            y = out[-1]
+            yield
+        return out
+
+    @staticmethod
+    def _run(gen):
+        """Drive a generator to completion and return its value."""
+        try:
+            while True:
+                next(gen)
+        except StopIteration as stop:
+            return stop.value
+
+    def _fbcomb(self, x, D, g):
+        return self._run(self._fbcomb_g(x, D, g))
 
     def reverb(self, x, **kw):
         """Small Schroeder reverb (block-processed feedback combs + allpasses)."""
-        g = self.reverb_g(x, **kw)
-        try:
-            while True:
-                next(g)
-        except StopIteration as stop:
-            return stop.value
+        return self._run(self.reverb_g(x, **kw))
 
     def reverb_g(self, x, mix=0.25, t60=1.0, size=1.0, tail=0.0, combs=4, lpf=3500.0, aps=2):
         """Generator version of ``reverb`` (yields between stages)."""
@@ -465,15 +488,14 @@ class _Synth:
             if D >= n:
                 continue
             g = 10.0 ** (-3.0 * D / (t60 * sr))
-            y = self._fbcomb(src, D, g)
+            y = yield from self._fbcomb_g(src, D, g)
             wet = list(map(_add, wet, y))
             yield
         for ms in (5.0, 1.7)[:aps]:
             D = max(1, int(ms * sr / 1000.0))
             if D < n:
-                wet = self._allpass(wet, D, 0.7)
-        yield
-        wet = self.lp(wet, lpf)
+                wet = yield from self._allpass_g(wet, D, 0.7)
+        wet = yield from self._lp_g(wet, lpf)
         k = mix / combs
         return [a + k * b for a, b in zip(src, wet)]
 
@@ -562,7 +584,6 @@ class _Synth:
     def r_ambience(self):
         S = self.sub(4)
         N = S.ns(8.0)
-        s = _sin
         soft = S.table(((1, 1.0, 0.0), (2, 0.35, 0.5), (3, 0.18, 1.0), (4, 0.08, 0.3),
                         (5, 0.05, 1.7)))
         drone = [0.0] * N
@@ -588,7 +609,6 @@ class _Synth:
         lo = self.sub(4)
         N4 = lo.ns(10.0)
         N = 2 * N4
-        s = _sin
         pad = lo.table(tuple((k, 1.0 / k ** 1.5, 0.37 * k) for k in range(1, lo.nh(300.0, 10) + 1)))
         drone = [0.0] * N4
         for f, a, c, ph in ((36.7, 0.12, 1, 0.0), (73.4, 0.30, 2, 1.0), (73.6, 0.22, 3, 2.0),
@@ -602,14 +622,14 @@ class _Synth:
         yield
         wind = lo.svf_bp(lo.noise(N4, 0.22), lo.lfo(N4, 2, 0.0, 180.0, 480.0, 8), 0.7,
                          circular=True)
-        drone = _upsample(list(map(_add, drone, wind)), 2, True)
+        drone = S.lp_circ(_upsample(list(map(_add, drone, wind)), 2, True), 1800.0)
         yield
         # Sparse, detuned music-box notes with a long echo.
         buf = [0.0] * (N + S.ns(3.5))
         for t, m in ((0.5, 74), (1.9, 77), (3.1, 81), (4.4, 80), (6.0, 74), (7.2, 69), (8.4, 73)):
             f = _midi(m) * 2.0 ** ((-30.0 + rng.uniform(-12.0, 12.0)) / 1200.0)
             S.add_at(buf, S.mbnote(f), S.ns(t), rng.uniform(0.5, 0.8))
-        buf = S._fbcomb(buf, S.ns(0.36), 0.45)
+        buf = yield from S._fbcomb_g(buf, S.ns(0.36), 0.45)
         notes = S.fold(buf, N)
         yield
         pn = 0.11 * _peak(drone) / (_peak(notes) or 1.0)
@@ -1019,7 +1039,6 @@ class _Synth:
     def r_chimes(self):
         S = self.sub(2)
         B = self.sub(4)
-        sr = S.sr
         rng = S.rng
         dur = 5.2
         n = S.ns(dur)
@@ -1156,8 +1175,7 @@ class _Synth:
         # Feedback comb with gain 1 turns one strike into an evenly spaced
         # train of ``strikes`` strikes (the negative copy ends the train).
         x = S._fbcomb(x, D, 1.0)
-        burst = x[:S.ns(1.55)]
-        S.add_at(x, burst, S.ns(1.5))
+        S.add_at(x, x[:n - S.ns(1.5)], S.ns(1.5))  # ring again
         x = S.drive(x, 1.4)
         return S.finish(x, 0.001, 0.2), 1
 
@@ -1173,7 +1191,6 @@ class _Synth:
         S.add_at(x, S.burst(0.08, 0.015, lp=1200.0), 0, 1.4)
         x = S.drive(x, 2.4)
         return S.finish(x, 0.002, 0.1), 2
-
 
     # -- speech-like babble (phone calls) ----------------------------------------
 
@@ -1472,7 +1489,7 @@ class SoundBank:
             try:
                 data, div, is_loop, peak = yield from _run_recipe(synth, name)
                 yield
-                snd = self._make_sound(data, div, is_loop, peak)
+                snd = yield from self._make_sound(data, div, is_loop, peak)
             except Exception as exc:  # a broken sound must never stop the game
                 print("audio: could not build %r: %s" % (name, exc), file=sys.stderr)
                 snd = None
@@ -1484,6 +1501,7 @@ class SoundBank:
         self.ready = True
 
     def _make_sound(self, data, div, is_loop, peak):
+        """Generator: convert float data to a Sound in the mixer's format."""
         freq, size, chans = self._spec
         if isinstance(data, tuple):
             L, R = data
@@ -1494,11 +1512,23 @@ class SoundBank:
         pk = _peak(L) if R is L else max(_peak(L), _peak(R))
         g = peak / pk if pk > 1e-12 else 0.0
         k = self._up * div
-        a, tc, zero = _encode(_upsample(L, k, is_loop), g, size)
+        big = len(L) * k > 200000
+        up = _upsample(L, k, is_loop)
+        if big:
+            yield
+        a, tc, zero = _encode(up, g, size)
         if chans == 1:
             buf = a
         else:
-            b = a if R is L else _encode(_upsample(R, k, is_loop), g, size)[0]
+            if R is L:
+                b = a
+            else:
+                if big:
+                    yield
+                up = _upsample(R, k, is_loop)
+                if big:
+                    yield
+                b = _encode(up, g, size)[0]
             buf = array(tc, [zero]) * (len(a) * chans)
             buf[0::chans] = a
             buf[1::chans] = b
