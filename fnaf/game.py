@@ -79,18 +79,22 @@ class Assets:
 
     def build(self):
         """Yields (fraction_done, label) while generating assets."""
+        # Sounds are synthesised in a separate process while the art is drawn
+        # here; the last stage collects them (or builds them in-process).
+        self.sounds.start_background()
         stages = [
             ("Tuning the static", 0.04, self._build_effects()),
-            ("Recording sounds", 0.30, self.sounds.build()),
-            ("Building the office", 0.18, self.office.build()),
-            ("Wiring the cameras", 0.30, self.feeds.build()),
-            ("Waking the animatronics", 0.14, self._build_characters()),
-            ("Printing the paperwork", 0.04, self._build_screens()),
+            ("Building the office", 0.14, self.office.build()),
+            ("Wiring the cameras", 0.36, self.feeds.build()),
+            ("Waking the animatronics", 0.2, self._build_characters()),
+            ("Printing the paperwork", 0.06, self._build_screens()),
+            ("Recording sounds", 0.2, self.sounds.build()),
         ]
         done = 0.0
         for label, weight, gen in stages:
             n = 0
             for _ in gen:
+                self.sounds.pump()
                 n += 1
                 # Asymptotic progress within a stage (we don't know its length).
                 yield done + weight * (1 - 1 / (1 + n / 12.0)), label
@@ -98,8 +102,10 @@ class Assets:
             yield done, label
 
     def _build_effects(self):
-        self.noise = make_noise_frames(6)
-        yield
+        self.noise = []
+        for _ in range(6):
+            self.noise += make_noise_frames(1)
+            yield
         self.scanlines = make_scanlines()
         self.vignette = make_vignette(strength=0.62)
         self.warp = PanoramaWarp()

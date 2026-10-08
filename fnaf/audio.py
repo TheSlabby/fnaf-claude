@@ -1381,6 +1381,66 @@ def _run_recipe(synth, name):
     return data, div, is_loop, peak
 
 
+def _buffer(data, div, is_loop, peak, spec, upf):
+    """Generator: float data -> sample array in the mixer's format ``spec``."""
+    freq, size, chans = spec
+    if isinstance(data, tuple):
+        L, R = data
+    else:
+        L = R = data
+    if chans == 1:
+        R = L  # mono mixer: use the left channel (no comb filtering)
+    pk = _peak(L) if R is L else max(_peak(L), _peak(R))
+    g = peak / pk if pk > 1e-12 else 0.0
+    k = upf * div
+    big = len(L) * k > 200000
+    up = _upsample(L, k, is_loop)
+    if big:
+        yield
+    a, tc, zero = _encode(up, g, size)
+    if chans == 1:
+        return a
+    if R is L:
+        b = a
+    else:
+        if big:
+            yield
+        up = _upsample(R, k, is_loop)
+        if big:
+            yield
+        b = _encode(up, g, size)[0]
+    buf = array(tc, [zero]) * (len(a) * chans)
+    buf[0::chans] = a
+    buf[1::chans] = b
+    return buf
+
+
+def _drain(gen):
+    """Run a generator to completion and return its value."""
+    try:
+        while True:
+            next(gen)
+    except StopIteration as stop:
+        return stop.value
+
+
+def _worker(spec, rate, upf, conn):
+    """Background process: synthesise every sound and stream the encoded
+    sample bytes back as ``(name, bytes)`` messages, then ``None``."""
+    try:
+        synth = _Synth(rate)
+        for name, _loop, _peak_, _meth in _RECIPES:
+            try:
+                data, div, is_loop, peak = _drain(_run_recipe(synth, name))
+                buf = _drain(_buffer(data, div, is_loop, peak, spec, upf))
+                conn.send((name, buf.tobytes()))
+            except Exception:
+                conn.send((name, None))
+        conn.send(None)
+    finally:
+        conn.close()
+
+
 def render(name, rate=22050):
     """Synthesise one sound without a mixer (testing / WAV export).
 
@@ -1436,6 +1496,8 @@ class SoundBank:
         self._started = []
         self._seq = 0
         self._paused = False
+        self._bg = None           # (process, pipe) while synthesising in the background
+        self._bg_done = False
         self._setup()
 
     # -- setup -------------------------------------------------------------
@@ -1481,6 +1543,8 @@ class SoundBank:
             self.progress = 1.0
             self.ready = True
             return
+        if self._bg is not None:
+            yield from self._collect_background()
         synth = _Synth(self._rate)
         total = len(_RECIPES)
         for name, _loop, _peak_, _meth in _RECIPES:
@@ -1500,38 +1564,83 @@ class SoundBank:
         self.progress = 1.0
         self.ready = True
 
+    def start_background(self):
+        """Start synthesising in a separate process so it overlaps with the
+        art being drawn. ``build()`` then collects the results (and builds
+        anything missing in-process if the worker fails)."""
+        if self._bg is not None or self.ready:
+            return
+        if not self.enabled:
+            self._setup()
+        if not self.enabled:
+            return
+        try:
+            import multiprocessing
+            import os
+            os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+            ctx = multiprocessing.get_context("spawn")
+            recv, send = ctx.Pipe(duplex=False)
+            proc = ctx.Process(target=_worker, args=(self._spec, self._rate, self._up, send), daemon=True)
+            proc.start()
+            send.close()
+            self._bg = (proc, recv)
+        except Exception as exc:  # no subprocesses here: build in-process instead
+            print("audio: background synthesis unavailable (%s)" % exc, file=sys.stderr)
+            self._bg = None
+
+    def pump(self):
+        """Take any sounds the background worker has finished (non-blocking).
+
+        Call this often while doing other work: the worker blocks once the
+        pipe is full, so draining it keeps both processes busy.
+        Returns False once the worker is done (or gone)."""
+        if self._bg is None:
+            return False
+        proc, recv = self._bg
+        try:
+            while recv.poll():
+                msg = recv.recv()
+                if msg is None:
+                    self._bg_done = True
+                    return False
+                name, data = msg
+                if data:
+                    try:
+                        self.sounds[name] = pygame.mixer.Sound(buffer=data)
+                    except pygame.error:
+                        pass
+                self.progress = min(1.0, len(self.sounds) / len(_RECIPES))
+        except (EOFError, OSError):
+            self._bg_done = True
+            return False
+        if not proc.is_alive() and not recv.poll():
+            self._bg_done = True
+            return False
+        return True
+
+    def _collect_background(self):
+        """Generator: receive sounds from the worker until it finishes."""
+        import time
+        proc, recv = self._bg
+        deadline = time.time() + 90.0
+        try:
+            while time.time() < deadline and not self._bg_done:
+                if self.pump():
+                    time.sleep(0.003)
+                yield
+        finally:
+            try:
+                recv.close()
+                if proc.is_alive():
+                    proc.terminate()
+                proc.join(1.0)
+            except Exception:
+                pass
+            self._bg = None
+
     def _make_sound(self, data, div, is_loop, peak):
         """Generator: convert float data to a Sound in the mixer's format."""
-        freq, size, chans = self._spec
-        if isinstance(data, tuple):
-            L, R = data
-        else:
-            L = R = data
-        if chans == 1:
-            R = L  # mono mixer: use the left channel (no comb filtering)
-        pk = _peak(L) if R is L else max(_peak(L), _peak(R))
-        g = peak / pk if pk > 1e-12 else 0.0
-        k = self._up * div
-        big = len(L) * k > 200000
-        up = _upsample(L, k, is_loop)
-        if big:
-            yield
-        a, tc, zero = _encode(up, g, size)
-        if chans == 1:
-            buf = a
-        else:
-            if R is L:
-                b = a
-            else:
-                if big:
-                    yield
-                up = _upsample(R, k, is_loop)
-                if big:
-                    yield
-                b = _encode(up, g, size)[0]
-            buf = array(tc, [zero]) * (len(a) * chans)
-            buf[0::chans] = a
-            buf[1::chans] = b
+        buf = yield from _buffer(data, div, is_loop, peak, self._spec, self._up)
         return pygame.mixer.Sound(buffer=buf.tobytes())
 
     # -- playback ------------------------------------------------------------

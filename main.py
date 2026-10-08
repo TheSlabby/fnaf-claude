@@ -8,6 +8,7 @@ Run:  python main.py            (normal game)
 """
 
 import argparse
+import multiprocessing
 
 from fnaf.game import Game
 
@@ -27,4 +28,5 @@ def parse_args():
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # sounds are synthesised in a helper process
     Game(parse_args()).run()
