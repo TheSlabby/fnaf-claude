@@ -171,7 +171,6 @@ LIGHT = (-0.38, -0.55)       # direction of the key light in each shape's frame
 SOCKET = (7, 5, 6)
 TEETH = (236, 228, 204)
 METAL = (150, 152, 160)
-INK = (14, 10, 10)
 
 
 def _rng(*key):
@@ -429,7 +428,7 @@ def _eye(p, x, y, rx, ry, iris, mode, look, lid=0.0, tilt=0.0, lidcol=None, mout
     elif mode == "pinpoint":
         px_, py_ = x + lx * rx * 0.35, y + ly * ry * 0.3
         p.circle((250, 250, 255), px_, py_, max(0.035, 1.4 / p.s))
-        p.glow(px_, py_, 0.3, (215, 215, 235))
+        p.glow(px_, py_, 0.24, (205, 205, 228))
     elif mode == "human":
         _human_eye(p, x, y - ry * 0.02, rx, ry, look, sx)
         lid *= 0.15
@@ -598,10 +597,10 @@ def _maw(p, ytop, ybot, hwt, hwb, drop, rng):
     # pistons in the corners of the jaw
     for sx in (-1, 1):
         a = (sx * hwt * 0.84, ytop + 0.03)
-        b = (sx * hwb * 0.8, ytop + h * 0.62)
-        _tube(p, dark_metal, [a, b], 0.045, lo=0.35, hi=0.85, ol=0.01)
-        _tube(p, (60, 60, 66), [a, (lerp(a[0], b[0], 0.4), lerp(a[1], b[1], 0.4))], 0.075, lo=0.35, hi=0.8, ol=0.01)
-        p.circle((24, 24, 28), b[0], b[1], 0.035)
+        b = (sx * hwb * 0.78, ytop + min(h * 0.5, 0.2 + h * 0.3))
+        _tube(p, (76, 76, 84), [a, b], 0.04, lo=0.3, hi=0.8, ol=0.01)
+        _tube(p, (54, 54, 60), [a, (lerp(a[0], b[0], 0.45), lerp(a[1], b[1], 0.45))], 0.07, lo=0.3, hi=0.75, ol=0.01)
+        p.circle((20, 20, 24), b[0], b[1], 0.03)
     # the endo's own jaws, deeper inside the head
     whu, whl = hwt * 0.6, hwb * 0.58
     ut = ytop + 0.17 + 0.1 * drop
@@ -619,7 +618,7 @@ def _maw(p, ytop, ybot, hwt, hwb, drop, rng):
                          (wx + 0.11, ytop + sag)], 0.016)
 
 
-def _maw_human(p, ytop, ybot, hwt, hwb, ym, drop, rng):
+def _maw_human(p, ytop, ybot, hwt, hwb, ym, drop):
     """Mouth interior when someone is stuffed inside the suit: lips, gums and human teeth."""
     h = ybot - ytop
     rb = min(0.16, h * 0.45)
@@ -646,7 +645,7 @@ def _maw_human(p, ytop, ybot, hwt, hwb, ym, drop, rng):
                 [0.035, 0.025, 0.012])
 
 
-def _jaw(p, ym, hw, drop, col, jw=1.0, Ll=0.19, chin=0.3, side=0.13, lo=0.5, hi=1.05, occl=None):
+def _jaw(p, ym, hw, drop, col, jw=1.0, Ll=0.19, chin=0.3, side=0.13, lo=0.5, hi=1.05, occl=None, taper=1.0):
     """The costume's lower jaw: a U-shaped piece hanging from hinges in the cheeks.
 
     ``occl = (cy, rx, ry)`` is the head ellipse whose lower edge casts a
@@ -655,9 +654,13 @@ def _jaw(p, ym, hw, drop, col, jw=1.0, Ll=0.19, chin=0.3, side=0.13, lo=0.5, hi=
     hwj = hw * jw
     yc = ym + drop + Ll
     top = ym - 0.24
-    pts = [(-hw - side, top), (hw + side, top), (hwj + side, yc)]
-    pts += _arcpts(0, yc, hwj + side, chin, 0, 180, 16)[1:-1]
-    pts += [(-hwj - side, yc)]
+    if taper < 1.0:
+        pts = [(-hw - side, top), (hw + side, top)]
+        pts += _arcpts(0, yc - chin * 0.3, (hwj + side) * taper, chin * 1.3, 0, 180, 18)
+    else:
+        pts = [(-hw - side, top), (hw + side, top), (hwj + side, yc)]
+        pts += _arcpts(0, yc, hwj + side, chin, 0, 180, 16)[1:-1]
+        pts += [(-hwj - side, yc)]
     _slab(p, col, pts, lo=lo, hi=hi, light=(-0.3, 0.35), shrink=0.55)
     if occl is not None:
         cy, rx, ry = occl
@@ -683,7 +686,7 @@ def _mouth(p, key, ym, hw, drop, jaw_col, jw=1.0, upper=True, sharp=False, Lu=0.
     if jaw:
         _jaw(p, ym, hw, drop, jaw_col, jw, Ll, chin)
     if human:
-        _maw_human(p, ym - 0.17, yc + 0.01, hw * 0.9, hwj * 0.88, ym, drop, _rng(key, "hmaw"))
+        _maw_human(p, ym - 0.17, yc + 0.01, hw * 0.9, hwj * 0.88, ym, drop)
     else:
         _maw(p, ym - 0.17, yc + 0.01, hw * 0.9, hwj * 0.88, drop, _rng(key, "maw"))
     _teeth(p, 0, hwj * 0.86, yc + 0.035, Ll + 0.035, nl, False, _rng(key, "lt"), col=tcol, sharp=sharp, curve=0.03)
@@ -692,7 +695,7 @@ def _mouth(p, key, ym, hw, drop, jaw_col, jw=1.0, upper=True, sharp=False, Lu=0.
     return yc
 
 
-def _round_ear(p, x, y, r, fur, inner, rot=0.0):
+def _round_ear(p, x, y, r, fur, inner):
     _blob(p, fur, [(x, y, r, r * 0.96)])
     _blob(p, inner, [(x + 0.01, y + 0.02, r * 0.56, r * 0.54)], lo=0.45, hi=0.95, ol=0.02,
           light=(0.3, 0.5))
@@ -825,7 +828,8 @@ def _head_foxy(p, pal, mouth, eyes, look, name="Foxy"):
         inner = [(sx * 0.42, -0.68), (sx * 0.74, -1.52), (sx * 0.8, -0.64)] if sx < 0 else \
             [(0.42, -0.68), (0.73, -1.5), (0.66, -1.06), (0.78, -0.64)]
         _slab(p, pal["ear"], inner, lo=0.45, hi=0.9, ol=0.02)
-    yc = _jaw(p, 0.68, 0.33, drop, shade(muz, 0.9), jw, 0.19, 0.32 + 0.1 * mouth, occl=(0.15, 0.9, 0.5))
+    yc = _jaw(p, 0.68, 0.33, drop, shade(muz, 0.9), jw, 0.19, 0.3 + 0.1 * mouth, occl=(0.15, 0.9, 0.5),
+              taper=0.9)
     _blob(p, fur, [(0, -0.2, 0.86, 0.72), (0, 0.15, 0.9, 0.5)])
     for sx in (-1, 1):
         tuft = [(sx * 0.76, -0.08), (sx * 1.1, 0.02), (sx * 0.92, 0.13), (sx * 1.14, 0.28), (sx * 0.9, 0.34),
@@ -835,7 +839,7 @@ def _head_foxy(p, pal, mouth, eyes, look, name="Foxy"):
     _mouth(p, name, 0.68, 0.33, drop, muz, jw, sharp=True, Lu=0.25, Ll=0.19, nu=7, nl=6, jaw=False, human=eyes == "human")
     # torn patch on the jaw showing metal
     _tear(p, 0.2 * jw, yc + 0.15, 0.1, 0.07, _rng(name, "jawtear"), shade(muz, 0.75))
-    _blob(p, muz, [(0, 0.3, 0.33, 0.26), (-0.17, 0.44, 0.19, 0.15), (0.17, 0.44, 0.19, 0.15)], lo=0.6, hi=1.08)
+    _blob(p, muz, [(0, 0.28, 0.33, 0.25), (-0.17, 0.4, 0.19, 0.15), (0.17, 0.4, 0.19, 0.15)], lo=0.6, hi=1.08)
     _tube(p, fur, [(0, -0.3), (0, -0.05), (0, 0.2)], [0.42, 0.34, 0.26], lo=0.6, hi=1.1, ol=0.0)
     _nose(p, 0, 0.24, 0.14, 0.095, pal["nose"])
     lid = pal["lid"] * (1 - 0.6 * mouth)
@@ -899,7 +903,7 @@ def _hand(p, col, thumb=1, fist=False, fingers=True, metal_fingers=()):
     """A mitt hand in a frame where the wrist is the origin and +y points to the fingertips."""
     if fist:
         _blob(p, col, [(0, 0.22, 0.25, 0.24)])
-        for i, fx in enumerate((-0.15, -0.05, 0.05, 0.15)):
+        for fx in (-0.15, -0.05, 0.05, 0.15):
             _blob(p, col, [(fx, 0.24, 0.07, 0.17)], lo=0.55, hi=1.0, ol=0.02)
         _tube(p, col, [(thumb * 0.2, 0.12), (thumb * 0.1, 0.3)], 0.11, ol=0.02)
         return
@@ -1048,10 +1052,13 @@ def _guitar(p):
             p.circle((210, 210, 214), sx * 0.15, -2.36 - i * 0.12, 0.03)
     body = [(0, 0.12, 0.56, 0.44), (-0.3, -0.3, 0.2, 0.34, -18), (0.3, -0.28, 0.18, 0.3, 22), (0, -0.05, 0.42, 0.4)]
     _blob(p, red, body, lo=0.5, hi=1.2, ol=0.035)
-    _blob(p, (236, 232, 222), [(0.12, 0.22, 0.26, 0.2, -20)], lo=0.75, hi=1.0, ol=0.012)
+    _blob(p, (40, 34, 36), [(0.12, 0.2, 0.27, 0.21, -20)], lo=(14, 12, 13), hi=(70, 64, 66), ol=0.012,
+          olc=(8, 6, 6))
     for y in (-0.1, 0.12):
-        _slab(p, (24, 22, 24), [(-0.13, y - 0.05), (0.13, y - 0.05), (0.13, y + 0.05), (-0.13, y + 0.05)],
-              lo=(10, 10, 10), hi=(70, 70, 74), ol=0.012, n=2)
+        _slab(p, (226, 214, 186), [(-0.13, y - 0.05), (0.13, y - 0.05), (0.13, y + 0.05), (-0.13, y + 0.05)],
+              lo=0.6, hi=1.05, ol=0.012, olc=(20, 18, 18), n=3)
+        for k in range(-2, 3):
+            p.circle((60, 56, 52), k * 0.045, y, 0.012)
     p.rect((180, 180, 186), -0.14, 0.27, 0.28, 0.06)
     for kx, ky in ((0.3, 0.3), (0.38, 0.14), (0.22, 0.42)):
         p.circle((30, 30, 30), kx, ky, 0.045)
@@ -1101,7 +1108,7 @@ def _bib(p, x, y):
     cols = [(226, 56, 60), (246, 146, 30), (60, 168, 70), (60, 120, 220), (150, 70, 200),
             (50, 140, 230), (232, 70, 140), (240, 180, 20), (60, 170, 90), (226, 56, 60)]
     ci = 0
-    for row, word, yy in ((0, "LET'S", y - 0.25), (1, "EAT!!", y + 0.19)):
+    for word, yy in (("LET'S", y - 0.25), ("EAT!!", y + 0.19)):
         size = 0.36
         f = font(max(6, int(round(size * p.s))), bold=True)
         widths = [f.size(ch)[0] / p.s for ch in word]
@@ -1118,7 +1125,7 @@ def _bib(p, x, y):
 
 # -- full bodies --------------------------------------------------------------
 
-def _body_bear(p, name, pal, prop, pose):
+def _body_bear(p, name, pal, prop):
     """Freddy, Golden, Bonnie and Chica share a costume rig."""
     fur = pal["fur"]
     rng = _rng(name, "body")
@@ -1368,11 +1375,11 @@ _BOUNDS = {
     ("Bonnie", False, "stand"): (-1.5, -3.1, 1.5, 2.12),
     ("Chica", True, "stand"): (-1.95, -1.5, 2.68, 6.1),
     ("Chica", False, "stand"): (-1.5, -1.5, 1.5, 2.0),
-    ("Foxy", True, "stand"): (-1.86, -1.92, 1.86, 6.13),
+    ("Foxy", True, "stand"): (-1.86, -1.92, 1.86, 6.15),
     ("Foxy", False, "stand"): (-1.5, -1.92, 1.5, 2.38),
-    ("Foxy", True, "run"): (-2.14, -1.92, 1.96, 6.17),
+    ("Foxy", True, "run"): (-1.9, -1.92, 1.88, 6.17),
     ("Foxy", False, "run"): (-1.5, -1.92, 1.5, 2.38),
-    ("Endo", True, "stand"): (-1.72, -1.18, 1.72, 6.1),
+    ("Endo", True, "stand"): (-1.75, -1.18, 1.75, 6.13),
     ("Endo", False, "stand"): (-1.46, -1.18, 1.46, 1.95),
 }
 
@@ -1392,7 +1399,9 @@ def draw_character(pen, name, mouth=0.0, eyes="normal", look=(0.0, 0.0), body=Tr
     mouth: 0 (closed) .. 1 (jaw wide open, jumpscare)
     eyes:  'normal' (white eyes, coloured iris), 'glow' (normal + glowing
            iris for dark rooms), 'pinpoint' (black sockets with tiny white
-           glowing pupils), 'none' (empty black sockets)
+           glowing pupils), 'none' (empty black sockets), 'human'
+           (bloodshot human eyes deep in the sockets and human teeth in the
+           mouth: the guard stuffed into a suit)
     look:  pupil offset, each component in -1..1
     body:  False draws only the head (plus neck/shoulders)
     prop:  Freddy's mic, Bonnie's guitar, Chica's cupcake
@@ -1418,7 +1427,7 @@ def draw_character(pen, name, mouth=0.0, eyes="normal", look=(0.0, 0.0), body=Tr
         elif name == "Golden" and pose == "slump":
             _body_golden_slump(p, pal)
         else:
-            _body_bear(p, name, pal, prop, pose)
+            _body_bear(p, name, pal, prop)
     else:
         _bust(p, pal, name)
     hp = p.sub(0, 0, rot=tilt) if tilt else p

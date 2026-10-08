@@ -3,12 +3,13 @@
 
 The bot plays like a competent (not perfect) player who knows the rules:
 
-* cycles left light -> right light -> monitor, with human-ish pauses;
-* listens for footsteps at the doors and checks that door soon after;
-* closes a door when someone is in the light, reopens it when it hears
-  them walk away;
-* on the monitor glances at Pirate Cove (Foxy freezes while any camera is
-  up), and checks on Freddy once he's close (watching him stalls him);
+* flips the monitor up every few seconds (Foxy can't move while any camera
+  is up) and checks both door lights every other round, with human-ish
+  pauses; flips faster once Foxy is peeking out of the cove;
+* listens for footsteps at the doors and checks that door soon after,
+  closes it on whoever is in the light, reopens it once they've walked off;
+* glances at Pirate Cove, and at Freddy once he's in the east hall
+  (watching him stalls him);
 * tracks Freddy by his laughs: while he's at CAM 4B it shuts the right door
   before looking at any other camera;
 * closes the left door when Foxy leaves the cove, opens it after the bang;
@@ -16,6 +17,8 @@ The bot plays like a competent (not perfect) player who knows the rules:
 * lifts the monitor at once if Golden Freddy shows up;
 * eases off the monitor and lights when power is running short.
 
+It also makes mistakes: it misses some footsteps (more often while staring at
+the monitor), reacts with a delay, and now and then forgets Freddy is at 4B.
 It reads a few things straight from the state that a player would know
 from sounds and the cameras (Freddy's room via laughs, who's in the room on
 screen). The numbers are a rough guide, not gospel.

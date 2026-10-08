@@ -42,7 +42,7 @@ _add = operator.add
 _mul = operator.mul
 
 _NUM_CHANNELS = 32
-_LOOP_CHANNELS = 8
+_LOOP_CHANNELS = 10
 
 
 def _midi(m):
@@ -668,7 +668,7 @@ class _Synth:
         rng = S.rng
         beat = 0.42
         N = S.ns(32 * beat)
-        buf = [0.0] * (N + S.ns(2.5))
+        buf = [0.0] * (N + S.ns(2.0))
         tune = {}
         cache = {}
 
@@ -710,7 +710,7 @@ class _Synth:
         return S.finish(x, 0.0005), 1
 
     def r_error(self):
-        S = self
+        S = self.sub(2)
         n = S.ns(0.42)
         sq = S.square_tab(S.nh(100.0, 40))
         a = S.osc(sq, 92.0, n)
@@ -718,7 +718,7 @@ class _Synth:
         x = S.lp(S.lp([u + v for u, v in zip(a, b)], 1300.0), 2000.0)
         x = S.drive(S.mul(x, S.env_lin(((0, 0), (0.01, 1), (0.30, 0.85), (0.38, 0)), n)), 2.0)
         S.add_at(x, S.thud(0.1, 140.0, 80.0, 0.03, 0.5))
-        return S.finish(x), 1
+        return S.finish(x), 2
 
     def r_door(self):
         S = self
@@ -849,7 +849,7 @@ class _Synth:
         return S.finish(x, 0.001, 0.02), 1
 
     def r_scream_gf(self):
-        S = self
+        S = self.sub(2)  # low and dark: nothing worth keeping above 5 kHz
         sr = S.sr
         dur = 2.1
         n = S.ns(dur)
@@ -877,7 +877,7 @@ class _Synth:
         x = [t(1.8 * v) for v in x]
         x = S.reverb(x, mix=0.3, t60=1.4, size=1.2, combs=3)
         x = S.hp(x, 45.0)
-        return S.finish(x, 0.001, 0.05), 1
+        return S.finish(x, 0.001, 0.05), 2
 
     def _step(self, x, t, amp, v=1.0, bright=1.0):
         """One heavy animatronic footfall mixed into ``x`` at ``t`` seconds."""
@@ -1057,7 +1057,7 @@ class _Synth:
         return S.finish(out, 0.001, 0.4), 2
 
     def r_powerdown(self):
-        S = self
+        S = self.sub(2)
         n = S.ns(2.6)
         x = [0.0] * n
         S.add_at(x, S.thud(0.6, 85.0, 40.0, 0.13))
@@ -1076,7 +1076,7 @@ class _Synth:
                       [150.0 + 1650.0 * e for e in S.env_exp(m, 0.55)])
         wamp = S.env_lin(((0, 0), (0.05, 0.2), (1.2, 0.07), (end, 0)), m)
         S.add_at(x, [h * a + w * b for h, a, w, b in zip(hum, amp, whine, wamp)], i0)
-        return S.finish(x, 0.001, 0.05), 1
+        return S.finish(x, 0.001, 0.05), 2
 
     def r_sting(self):
         S = self
