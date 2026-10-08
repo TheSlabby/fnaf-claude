@@ -111,11 +111,7 @@ class Assets:
         for name in ("Freddy", "Bonnie", "Chica", "Foxy"):
             self.portraits[name] = rc(name, 52, body=False)
             yield
-        dead = rc("Freddy", 120, body=False, eyes="pinpoint")
-        img = dead.surface.copy()
-        img.fill((70, 64, 70), special_flags=pygame.BLEND_RGB_MULT)
-        dead.surface = img
-        self.portraits["Freddy_dead"] = dead
+        self.portraits["Freddy_dead"] = grime(rc("Freddy", 130, body=False, eyes="human", mouth=0.1), 0.75)
         yield
 
 
