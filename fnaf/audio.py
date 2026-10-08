@@ -468,7 +468,7 @@ class _Synth:
 
     def mbnote(self, f, amp=1.0):
         """A music-box tine: bright ping, slow beating from a detuned twin."""
-        tau = max(0.22, min(0.5, 0.42 * (600.0 / f) ** 0.5))
+        tau = max(0.18, min(0.45, 0.32 * (600.0 / f) ** 0.5))
         n = self.ns(3.4 * tau)
         r1 = _exp(-1.0 / (tau * self.sr))
         r2 = _exp(-1.0 / (0.9 * tau * self.sr))
@@ -477,10 +477,10 @@ class _Synth:
         c1 = complex(r1 * _cos(w1), r1 * _sin(w1))
         c2 = complex(r2 * _cos(w2), r2 * _sin(w2))
         z1 = complex(0.0, -amp)
-        z2 = complex(0.0, -0.42 * amp)
+        z2 = complex(0.0, -0.32 * amp)
         # Fundamental and twin in one pass (real part starts at zero).
         out = [(z1 := z1 * c1).real + (z2 := z2 * c2).real for _ in repeat(None, n)]
-        hi = self.modes(((2.0 * f, 0.13, 0.32 * tau), (5.4 * f, 0.22, 0.035),
+        hi = self.modes(((2.0 * f, 0.13, 0.32 * tau), (5.4 * f, 0.3, 0.035),
                          (8.93 * f, 0.08, 0.016)), min(0.5, 3.4 * tau), amp)
         self.add_at(out, hi)
         self.add_at(out, self.burst(0.006, 0.0008, 0.18 * amp, hp=3000.0))
@@ -580,11 +580,12 @@ class _Synth:
         s = _sin
         pad = lo.table(tuple((k, 1.0 / k ** 1.5, 0.37 * k) for k in range(1, lo.nh(300.0, 10) + 1)))
         drone = [0.0] * N4
-        for f, a, c, ph in ((36.7, 0.22, 1, 0.0), (73.4, 0.30, 2, 1.0), (73.6, 0.22, 3, 2.0),
-                            (110.0, 0.14, 1, 2.5), (174.6, 0.07, 3, 1.7), (207.7, 0.05, 1, 3.9)):
+        for f, a, c, ph in ((36.7, 0.12, 1, 0.0), (73.4, 0.30, 2, 1.0), (73.6, 0.22, 3, 2.0),
+                            (110.0, 0.16, 1, 2.5), (146.8, 0.08, 2, 0.6), (174.6, 0.08, 3, 1.7),
+                            (207.7, 0.05, 1, 3.9)):
             o = lo.losc(pad, f, N4, ph / TAU)
             drone = list(map(_add, drone, map(_mul, o, lo.lfo(N4, c, ph, 0.0, a))))
-        drone = lo.lp_var(drone, lo.lfo(N4, 1, 1.0, 140.0, 700.0, 8), circular=True)
+        drone = lo.lp_var(drone, lo.lfo(N4, 1, 1.0, 260.0, 1100.0, 8), circular=True)
         yield
         wind = lo.svf_bp(lo.noise(N4, 0.22), lo.lfo(N4, 2, 0.0, 180.0, 480.0, 8), 0.7,
                          circular=True)
@@ -683,16 +684,16 @@ class _Synth:
             if m is not None:
                 jit = 0.0 if k == 0 else rng.uniform(-0.012, 0.012)
                 S.add_at(buf, note(m + 12, 1.0 if pos % 4 == 0 else 0.85),
-                         S.ns(pos * beat + jit))
+                         S.ns(0.015 + pos * beat + jit))
             pos += b
             if k % 8 == 7:
                 yield
         for bar, hits in enumerate(self._TOREADOR_ACC):
             for bt, m in hits:
-                S.add_at(buf, note(m, 0.42),
-                         S.ns((4 * bar + bt) * beat + rng.uniform(0.0, 0.015)))
+                S.add_at(buf, note(m, 0.36),
+                         S.ns(0.015 + (4 * bar + bt) * beat + rng.uniform(0.0, 0.015)))
         yield
-        buf = S._fbcomb(buf, S.ns(0.23), 0.28)
+        buf = S.reverb(buf, mix=0.3, t60=0.9, size=0.8, combs=2, aps=1, lpf=5000.0)
         out = S.fold(buf, N)
         return out, 1
 
@@ -714,7 +715,7 @@ class _Synth:
         sq = S.square_tab(S.nh(100.0, 40))
         a = S.osc(sq, 92.0, n)
         b = S.osc(sq, 97.5, n, ph=0.3)
-        x = S.lp(S.lp([u + v for u, v in zip(a, b)], 900.0), 1400.0)
+        x = S.lp(S.lp([u + v for u, v in zip(a, b)], 1300.0), 2000.0)
         x = S.drive(S.mul(x, S.env_lin(((0, 0), (0.01, 1), (0.30, 0.85), (0.38, 0)), n)), 2.0)
         S.add_at(x, S.thud(0.1, 140.0, 80.0, 0.03, 0.5))
         return S.finish(x), 1
@@ -964,10 +965,10 @@ class _Synth:
                enumerate(zip(src, sub, amp))]
         nz = S.noise(n)
         exc = [v + 0.5 * z * h for v, z, h in zip(exc, nz, asp)]
-        y = S.formants(exc, ((260.0, 80.0, 0.6), (520.0, 110.0, 1.0), (900.0, 130.0, 0.7),
-                             (2100.0, 200.0, 0.25), (2900.0, 250.0, 0.12)))
+        y = S.formants(exc, ((260.0, 80.0, 0.4), (520.0, 120.0, 1.0), (900.0, 140.0, 0.9),
+                             (2100.0, 220.0, 0.45), (2900.0, 260.0, 0.25)))
         yield
-        y = S.hp(S.drive(y, 2.2), 40.0)
+        y = S.hp(S.hp(S.drive(y, 2.2), 90.0), 90.0)
         y = S.reverb(y, mix=0.3, t60=0.9, size=1.3)
         return S.finish(y, 0.002, 0.03), 2
 
@@ -984,8 +985,8 @@ class _Synth:
         src = S.osc(S.glottal_tab(S.nh(70.0, 60)), f0)
         sub = S.osc(S.square_tab(S.nh(35.0, 40)), f0, ratio=0.5)
         exc = [a + 0.4 * b for a, b in zip(src, sub)]
-        y = S.formants(exc, ((150.0, 60.0, 0.5), (320.0, 90.0, 1.0), (680.0, 110.0, 0.6),
-                             (2300.0, 200.0, 0.15)))
+        y = S.formants(exc, ((150.0, 60.0, 0.4), (320.0, 90.0, 1.0), (680.0, 120.0, 0.8),
+                             (2300.0, 220.0, 0.3)))
         wg = TAU * 13.0 / sr
         grind = S.reson(S.noise(n), 450.0, 250.0)
         whine = S.osc(S.table(((1, 1.0, 0.0),)), S.env_lin(((0, 720.0), (dur, 640.0)), n))
@@ -993,7 +994,7 @@ class _Synth:
         y = [v + 0.5 * gr * (0.5 + 0.5 * s(wg * i)) + 0.04 * wh
              for i, (v, gr, wh) in enumerate(zip(y, grind, whine))]
         yield
-        y = S.hp(S.drive(y, 2.0), 30.0)
+        y = S.hp(S.hp(S.drive(y, 2.0), 60.0), 60.0)
         y = S.mul(y, S.env_lin(((0, 0), (0.35, 1.0), (1.35, 0.85), (dur, 0.0)), n))
         y = S.reverb(y, mix=0.2, t60=1.0, combs=3)
         return S.finish(y), 2
@@ -1024,7 +1025,8 @@ class _Synth:
         out.extend([0.0] * (n - len(out)))
         del out[n:]
         # Children cheering "yaaay!"
-        gt = S.glottal_tab(S.nh(600.0, 16))
+        # Shouting is a pressed, bright voice: flatter spectral tilt than speech.
+        gt = S.table(tuple((k, 1.0 / k ** 0.6, 0.3 * k) for k in range(1, S.nh(600.0, 16) + 1)))
         k0 = S.ns(0.3)
         nk = S.ns(3.1)
         src = [0.0] * nk
@@ -1043,14 +1045,14 @@ class _Synth:
             seg = src[i0:i0 + m]
             src[i0:i0 + m] = map(_add, seg, map(_mul, map(_add, sig, nz), env))
         yield
-        va = S.formants(src, ((1000.0, 160.0, 1.0), (1650.0, 220.0, 0.7), (3000.0, 350.0, 0.35)))
-        vi = S.formants(src, ((430.0, 120.0, 1.0), (2700.0, 300.0, 0.6), (3500.0, 350.0, 0.3)))
+        va = S.formants(src, ((1000.0, 300.0, 1.0), (1700.0, 350.0, 1.2), (3000.0, 500.0, 0.9)))
+        vi = S.formants(src, ((450.0, 200.0, 0.5), (2600.0, 400.0, 1.2), (3400.0, 500.0, 0.7)))
         wa = S.env_lin(((0, 0), (0.15, 0.2), (0.3, 1.0), (1.6, 1.0), (2.3, 0.2), (3.1, 0.2)), nk)
         crowd = S.mul(S.reson(S.noise(nk), 1300.0, 900.0),
                       S.env_lin(((0, 0), (0.2, 0), (0.5, 0.6), (1.9, 0.36), (2.7, 0)), nk))
-        kids = [b + (a - b) * w + c for a, b, w, c in zip(va, vi, wa, crowd)]
+        kids = S.hp([b + (a - b) * w + c for a, b, w, c in zip(va, vi, wa, crowd)], 600.0)
         yield
-        S.add_at(out, kids, k0, 0.9 * _peak(out) / (_peak(kids) or 1.0))
+        S.add_at(out, kids, k0, 1.5 * _peak(out) / (_peak(kids) or 1.0))
         out = S.reverb(out, mix=0.22, t60=1.6, size=1.3)
         return S.finish(out, 0.001, 0.4), 2
 
@@ -1145,8 +1147,11 @@ class _Synth:
         boom = S.thud(1.1, 72.0, 36.0, 0.38, glide=0.25)
         rumble = S.mul(S.lp(S.lp(S.noise(n), 140.0), 140.0), S.env_exp(n, 0.3, 3.0))
         x = [a + b for a, b in zip(boom, rumble)]
-        S.add_at(x, S.burst(0.06, 0.012, lp=700.0), 0, 0.8)
-        x = S.drive(x, 1.6)
+        S.add_at(x, S.thud(0.5, 170.0, 75.0, 0.12), 0, 0.45)
+        whoomp = S.mul(S.reson(S.noise(n), 260.0, 300.0), S.env_exp(n, 0.22, 2.5))
+        x = list(map(_add, x, whoomp))
+        S.add_at(x, S.burst(0.08, 0.015, lp=1200.0), 0, 1.4)
+        x = S.drive(x, 2.4)
         return S.finish(x, 0.002, 0.1), 2
 
 

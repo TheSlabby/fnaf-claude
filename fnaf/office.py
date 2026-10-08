@@ -70,8 +70,8 @@ del _side, _kind, _bx, _by, _r
 POSTER = pygame.Rect(462, 140, 228, 284)
 # name -> (x, y, scale) of the head centre on the poster.
 _POSTER_HEADS = {"Bonnie": (517, 320, 26), "Chica": (635, 320, 26), "Freddy": (576, 300, 33)}
-_NOSE_LOCAL = (0.0, 0.32)  # Freddy's nose relative to the head centre, in head units
-NOSE_RECT = pygame.Rect(0, 0, 28, 22)
+_NOSE_LOCAL = (0.0, 0.07)  # Freddy's nose relative to the head centre, in head units
+NOSE_RECT = pygame.Rect(0, 0, 24, 18)
 NOSE_RECT.center = (int(_POSTER_HEADS["Freddy"][0] + _NOSE_LOCAL[0] * _POSTER_HEADS["Freddy"][2]),
                     int(_POSTER_HEADS["Freddy"][1] + _NOSE_LOCAL[1] * _POSTER_HEADS["Freddy"][2]))
 
@@ -88,11 +88,15 @@ FAN_FPS = 30.0
 
 # Animatronics standing right outside a doorway: head centre (office coords)
 # and scale. The real figure would be smaller; they are shown big and close.
-DOOR_CHAR_SCALE = 64
-DOOR_CHAR_HEAD = {"L": (282, 252), "R": (W - 282, 252)}
+DOOR_CHAR_SCALE = 70
+DOOR_CHAR_HEAD = {"L": (282, 258), "R": (W - 282, 258)}
 
-GOLDEN_SCALE = 80
-GOLDEN_HEAD = (VPX, 452)
+# Lighting gains (light masks only reach 1.0; these scale the result).
+LIGHT_GAIN = 2.35       # office
+HALL_GAIN = 2.1         # harsh hallway light outside a doorway
+
+GOLDEN_SCALE = 74
+GOLDEN_HEAD = (VPX, 420)
 
 _HALL_Z_IN = ZWALL + 0.14   # back face of the wall (door jamb depth)
 _HALL_Z_FAR = 4.4           # the hallway's far wall
@@ -178,28 +182,39 @@ def _stains(w, h, cell, lo, hi, rng):
     return pygame.transform.smoothscale(small, (w, h))
 
 
-def _boost(mask, k):
-    """Scale a mask's brightness by k (any positive factor, clamped at 255)."""
-    out = mask.copy()
+def _gain(surf, k):
+    """Scale RGB by k in place (k may exceed 1; clips at 255; alpha kept)."""
     while k >= 2.0:
-        out.blit(out, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+        surf.blit(surf.copy(), (0, 0), special_flags=pygame.BLEND_RGB_ADD)
         k /= 2.0
     if k > 1.0:
-        extra = out.copy()
+        extra = surf.copy()
         v = int(255 * (k - 1.0))
-        _mult(extra, _const(extra.get_size(), (v, v, v)))
-        out.blit(extra, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+        extra.blit(_const(extra.get_size(), (v, v, v)), (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        surf.blit(extra, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
     elif k < 1.0:
         v = int(255 * k)
-        _mult(out, _const(out.get_size(), (v, v, v)))
-    return out
+        surf.blit(_const(surf.get_size(), (v, v, v)), (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+    return surf
+
+
+def _boost(mask, k):
+    """Copy of a mask with its brightness scaled by k (clamped at 255)."""
+    return _gain(mask.copy(), k)
+
+
+def _light(surf, mask, gain=1.0):
+    """Copy of ``surf`` multiplied by ``mask`` (same size) then by ``gain``.
+
+    Masks top out at 1.0, so the gain lets light be brighter than albedo."""
+    out = surf.copy()
+    out.blit(mask, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+    return _gain(out, gain) if gain != 1.0 else out
 
 
 def _lit_sprite(surf, mask_crop):
     """RGB-multiply an alpha sprite by a mask of the same size (alpha kept)."""
-    out = surf.copy()
-    out.blit(mask_crop, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
-    return out
+    return _light(surf, mask_crop)
 
 
 def _silhouette(surf, alpha):
@@ -348,7 +363,7 @@ def _draw_walls_lower(p, rng):
     p.rect((52, 52, 56), 0, BASE_TOP, W, 2)
 
 
-def _draw_floor_tiles(p, x_lo, x_hi, z_far, z_near, tile=0.26, light=(122, 122, 114), dark=(24, 24, 26),
+def _draw_floor_tiles(p, x_lo, x_hi, z_far, z_near, tile=0.26, light=(156, 156, 146), dark=(28, 28, 30),
                       rng=None):
     zs = [z_far]
     while zs[-1] > z_near:
@@ -580,7 +595,7 @@ def _draw_vent(p):
 def _draw_poster(p, big, rng):
     r = POSTER
     # Shadow and paper.
-    _vgrad(p, r.x, r.y, r.w, r.h, (44, 36, 86), (20, 16, 40))
+    _vgrad(p, r.x, r.y, r.w, r.h, (74, 60, 132), (40, 32, 80))
     # Spotlight rays behind the heads (clipped to the poster).
     cx, cy = r.centerx, r.y + 175
     old_clip = big.get_clip()
@@ -588,7 +603,7 @@ def _draw_poster(p, big, rng):
     for i in range(16):
         a0 = i * math.tau / 16
         a1 = a0 + math.tau / 32
-        p.poly((56, 46, 104), [(cx, cy), (cx + math.cos(a0) * 300, cy + math.sin(a0) * 300),
+        p.poly((92, 76, 156), [(cx, cy), (cx + math.cos(a0) * 300, cy + math.sin(a0) * 300),
                                (cx + math.cos(a1) * 300, cy + math.sin(a1) * 300)])
     big.set_clip(old_clip)
     # Confetti.
@@ -776,7 +791,7 @@ def _draw_desk(p, rng):
     xl, xr = near_l[0], near_r[0]
     _vgrad(p, xl, ny, xr - xl, 10, (128, 120, 108), (82, 76, 68))
     apron_b = ny + 42
-    _vgrad(p, xl, ny + 10, xr - xl, apron_b - ny - 10, (64, 60, 56), (48, 45, 43))
+    _vgrad(p, xl, ny + 10, xr - xl, apron_b - ny - 10, (80, 75, 70), (62, 58, 55))
     p.rect((30, 28, 27), xl, apron_b - 2, xr - xl, 2)
     kx0, kx1 = VPX - 160, VPX + 160
     # Knee hole: back panel, side faces and floor seen in perspective.
@@ -791,12 +806,12 @@ def _draw_desk(p, rng):
         p.poly((22, 21, 21), [(x_near, apron_b), (x_far, apron_b), (x_far, floor_far), (x_near, H)])
     # Pedestals with drawers.
     for x0, x1 in ((xl, kx0), (kx1, xr)):
-        _vgrad(p, x0, apron_b, x1 - x0, H - apron_b, (58, 54, 51), (34, 32, 31))
+        _vgrad(p, x0, apron_b, x1 - x0, H - apron_b, (74, 69, 64), (48, 45, 43))
         p.rect((84, 80, 74), x0, apron_b, 2, H - apron_b)
         p.rect((22, 21, 20), x1 - 2, apron_b, 2, H - apron_b)
         for dy0, dy1 in ((apron_b + 8, apron_b + 78), (apron_b + 84, H + 10)):
             p.rect((24, 23, 22), x0 + 10, dy0, x1 - x0 - 20, dy1 - dy0, radius=3)
-            _vgrad(p, x0 + 12, dy0 + 2, x1 - x0 - 24, dy1 - dy0 - 4, (64, 60, 56), (44, 41, 39))
+            _vgrad(p, x0 + 12, dy0 + 2, x1 - x0 - 24, dy1 - dy0 - 4, (82, 77, 71), (58, 54, 51))
             hx = (x0 + x1) / 2.0
             hy = dy0 + 22
             p.rect((22, 22, 22), hx - 26, hy - 3, 52, 9, radius=3)
@@ -1083,7 +1098,7 @@ def _draw_hall(p, rng):
     p.rect((34, 36, 40), r.x, band_top - 3, r.w, 3)
     for row in range(3):
         for col in range(int(r.w / band_sq) + 2):
-            c = TILE_W if (row + col) % 2 else TILE_K
+            c = TILE_K if (row + col) % 2 else TILE_W
             p.rect(c, r.x + col * band_sq, band_top + row * band_sq, band_sq + 0.5, band_sq + 0.5)
     lt = band_top + 3 * band_sq
     p.rect((34, 36, 40), r.x, lt, r.w, 3)
@@ -1143,10 +1158,10 @@ def _draw_jambs(p):
 
 def _hall_light_mask(w, h):
     """Harsh light from a fixture just outside, above the doorway."""
-    return make_light_mask(w, h, (5, 5, 7), [
-        (w * 0.56, -50, w * 1.05, h * 1.02, (255, 252, 240)),
-        (w * 0.55, h * 0.06, w * 0.6, h * 0.5, (120, 118, 110)),
-        (w * 0.52, h * 0.95, w * 0.75, h * 0.3, (120, 116, 104)),
+    return make_light_mask(w, h, (34, 34, 38), [
+        (w * 0.56, -40, w * 1.35, h * 1.45, (184, 182, 172)),
+        (w * 0.55, h * 0.12, w * 0.7, h * 0.55, (60, 58, 54)),
+        (w * 0.52, h * 1.0, w * 1.1, h * 0.5, (210, 204, 186)),
     ])
 
 
@@ -1287,30 +1302,29 @@ class Office:
         del big, p, m
         yield
         # Grime: large stains, medium blotches and fine grain.
-        _mult(raw, _stains(W, H, 46, 150, 255, rng))
-        _mult(raw, _stains(W, H, 9, 196, 255, rng))
+        _mult(raw, _stains(W, H, 46, 178, 255, rng))
+        _mult(raw, _stains(W, H, 9, 210, 255, rng))
         yield
-        _mult(raw, _noise(W, H, 214, 255, rng))
+        _mult(raw, _noise(W, H, 224, 255, rng))
         yield
 
         # Lighting.
-        mask = make_light_mask(W, H, (22, 24, 30), [
-            (VPX, 300, 1120, 680, (196, 186, 166)),
-            (VPX, 470, 600, 260, (52, 46, 36)),
-            (VPX, 40, 260, 140, (110, 96, 70)),
-            (_PANEL.centerx, _PANEL.centery, 130, 210, (66, 68, 78)),
-            (W - _PANEL.centerx, _PANEL.centery, 130, 210, (66, 68, 78)),
+        mask = make_light_mask(W, H, (40, 43, 52), [
+            (VPX, 300, 1250, 820, (160, 150, 132)),
+            (VPX, 480, 620, 300, (40, 36, 28)),
+            (VPX, 40, 300, 150, (90, 78, 56)),
+            (_PANEL.centerx, _PANEL.centery, 140, 220, (80, 82, 92)),
+            (W - _PANEL.centerx, _PANEL.centery, 140, 220, (80, 82, 92)),
         ])
         self._office_mask = mask
         yield
-        base = raw.copy()
-        _mult(base, mask)
+        base = _light(raw, mask, LIGHT_GAIN)
         add_glows(base, [(VPX, 58, 90, (120, 96, 60)), (VPX, 56, 34, (255, 226, 170))])
         add_glows(base, [(x, y, r, (14, 30, 26)) for x, y, r in screen_glows])
         yield
         # Fan frames: lit background crop + lit blades.
         fan_bg = base.subsurface(FAN_RECT).copy()
-        fan_mask = _boost(mask.subsurface(FAN_RECT).copy(), 1.1)
+        fan_mask = mask.subsurface(FAN_RECT).copy()
         frames = []
         raw_frame0 = None
         for i in range(FAN_FRAMES):
@@ -1318,7 +1332,7 @@ class Office:
             if i == 0:
                 raw_frame0 = spr
             f = fan_bg.copy()
-            f.blit(_lit_sprite(spr, fan_mask), (0, 0))
+            f.blit(_light(spr, fan_mask, LIGHT_GAIN), (0, 0))
             frames.append(_cv(f))
             if i % 3 == 2:
                 yield
@@ -1337,7 +1351,7 @@ class Office:
                 base.blit(surf, pos)
         yield
         # Power-out version: nearly black, faint shapes.
-        dark_mask = make_light_mask(W, H, (6, 7, 10), [(VPX, 330, 1000, 560, (11, 11, 15))])
+        dark_mask = make_light_mask(W, H, (14, 16, 23), [(VPX, 330, 1000, 560, (22, 22, 28))])
         raw.blit(raw_frame0, FAN_RECT.topleft)
         dark = raw.copy()
         _mult(dark, dark_mask)
@@ -1359,8 +1373,7 @@ class Office:
                     lights = [(fx - rect.x, FLOOR_Y + 14 - rect.y, 260, 95, shade((255, 250, 232), k)),
                               (dx - rect.x, 300 - rect.y, 200, 360, shade((150, 148, 138), k))]
                     smask = make_light_mask(rect.w, rect.h, (0, 0, 0), lights)
-                    add = raw.subsurface(rect).copy()
-                    _mult(add, smask)
+                    add = _light(raw.subsurface(rect), smask, 1.5)
                     img = base.subsurface(rect).copy()
                     img.blit(add, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
                     parts.append((_cv(img), rect.topleft))
@@ -1434,7 +1447,7 @@ class Office:
         ay = spr.anchor[1]
         for yy in range(h):
             u = (yy - ay) / (DOOR_CHAR_SCALE * 5.0)
-            v = int(255 * clamp(1.0 - 0.62 * u, 0.32, 1.0))
+            v = int(255 * clamp(1.0 - 0.3 * u, 0.62, 1.0))
             pygame.draw.line(grad, (v, v, v), (0, yy), (w, yy))
         surf.blit(grad, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
         return surf
@@ -1456,7 +1469,7 @@ class Office:
                             hy - r.y - spr.anchor[1] * 1.08 + 46))
             _sprite_blit(self._toplit(spr), spr, surf, (hx - r.x, hy - r.y), glows)
         surf.blit(self._jambs_raw[side], (0, 0))
-        _mult(surf, self._hall_masks[side])
+        surf = _light(surf, self._hall_masks[side], HALL_GAIN)
         if glows:
             add_glows(surf, glows, 0.8)
         return _cv(surf)
@@ -1467,7 +1480,7 @@ class Office:
         jam = self._jambs_raw[side].copy()
         lvl = self._office_mask.subsurface(r).copy() if self._office_mask else _const((r.w, r.h), (50, 50, 56))
         jam.blit(lvl, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
-        jam.blit(_const((r.w, r.h), (150, 150, 160)), (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        jam.blit(_const((r.w, r.h), (120, 120, 130)), (0, 0), special_flags=pygame.BLEND_RGB_MULT)
         surf.blit(jam, (0, 0))
         return _cv(surf)
 
@@ -1480,17 +1493,14 @@ class Office:
         _mult(surf, _stains(r.w, r.h, 18, 140, 255, rng))
         _mult(surf, _noise(r.w, r.h, 200, 255, rng))
         light = self._office_mask.subsurface(r).copy() if self._office_mask else _const((r.w, r.h), (60, 60, 64))
-        light = _boost(light, 1.9)
         # Shadow under the housing at the top of the doorway.
         top_shadow = pygame.Surface((r.w, r.h))
         for yy in range(r.h):
             v = int(255 * clamp(0.55 + yy / 140.0, 0.0, 1.0))
             pygame.draw.line(top_shadow, (v, v, v), (0, yy), (r.w, yy))
         _mult(light, top_shadow)
-        lit = surf.copy()
-        _mult(lit, light)
-        dark = surf.copy()
-        _mult(dark, _const((r.w, r.h), (14, 15, 19)))
+        lit = _light(surf, light, LIGHT_GAIN * 1.45)
+        dark = _light(surf, _const((r.w, r.h), (24, 25, 32)))
         self.shutters[side] = _cv(lit)
         self.dark_shutters[side] = _cv(dark)
 
@@ -1507,12 +1517,12 @@ class Office:
             if lit:
                 bw, bh = body.get_size()
                 ox, oy = spr.anchor
-                fmask = make_light_mask(bw, bh, (3, 3, 4), [
-                    (ox, oy + DOOR_CHAR_SCALE * 0.15, DOOR_CHAR_SCALE * 1.5, DOOR_CHAR_SCALE * 1.7, (92, 84, 78)),
+                fmask = make_light_mask(bw, bh, (6, 6, 8), [
+                    (ox, oy + DOOR_CHAR_SCALE * 0.15, DOOR_CHAR_SCALE * 1.6, DOOR_CHAR_SCALE * 1.8, (200, 184, 168)),
                 ])
-                body.blit(fmask, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+                body = _light(body, fmask, 2.0)
             else:
-                body.blit(_const(body.get_size(), (5, 5, 7)), (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+                body = _light(body, _const(body.get_size(), (12, 12, 16)))
             _sprite_blit(body, spr, surf, (ax, ay), glows if lit else None)
             if lit:
                 if not glows:
@@ -1530,15 +1540,15 @@ class Office:
         mask.fill((40, 40, 44))
         if self._office_mask is not None:
             mask.blit(self._office_mask, (-x, -y))
-        mask = _boost(mask, 0.6)
+        mask = _boost(mask, 0.74)
         # Darker toward the floor, in the desk's shadow.
         grad = pygame.Surface((sw, sh))
         for yy in range(sh):
             v = int(255 * clamp(1.0 - max(0, (y + yy) - 520) / 300.0, 0.35, 1.0))
             pygame.draw.line(grad, (v, v, v), (0, yy), (sw, yy))
         _mult(mask, grad)
-        lit = _lit_sprite(spr.surface, mask)
-        dark = _lit_sprite(spr.surface, _const((sw, sh), (16, 16, 20)))
+        lit = _light(spr.surface, mask, LIGHT_GAIN)
+        dark = _light(spr.surface, _const((sw, sh), (24, 24, 30)))
         self.golden = (_cv(lit, True), _cv(dark, True), (x, y))
 
     # -- drawing ------------------------------------------------------------------

@@ -185,9 +185,9 @@ def _col(base, k):
     return shade(base, k)
 
 
-def _nl(p, r, k=1.0, lo=2, hi=14):
+def _nl(p, r, k=1.0, lo=2, hi=26):
     """Number of shading layers for a shape of local radius r."""
-    return int(clamp(r * p.s * k / 8.0, lo, hi))
+    return int(clamp(r * p.s * k / 6.5, lo, hi))
 
 
 def _dot(surf, c, x, y, r):
@@ -430,11 +430,114 @@ def _eye(p, x, y, rx, ry, iris, mode, look, lid=0.0, tilt=0.0, lidcol=None, mout
         px_, py_ = x + lx * rx * 0.35, y + ly * ry * 0.3
         p.circle((250, 250, 255), px_, py_, max(0.035, 1.4 / p.s))
         p.glow(px_, py_, 0.3, (215, 215, 235))
+    elif mode == "human":
+        _human_eye(p, x, y - ry * 0.02, rx, ry, look, sx)
+        lid *= 0.15
     else:  # none: empty socket with a faint inner rim
         p.ellipse((18, 14, 14), x, y + ry * 0.12, rx * 0.95, ry * 0.85)
         p.ellipse((2, 1, 2), x, y + ry * 0.05, rx * 0.88, ry * 0.8)
     if lid > 0 and lidcol is not None:
         _lid(p, x, y, srx, sry, lid, tilt * sx, lidcol)
+
+
+def _clip_convex(poly, clip):
+    """Clip ``poly`` by the convex polygon ``clip``."""
+    area = sum(clip[i][0] * clip[(i + 1) % len(clip)][1] - clip[(i + 1) % len(clip)][0] * clip[i][1]
+               for i in range(len(clip)))
+    sgn = 1 if area > 0 else -1
+    out = poly
+    for i in range(len(clip)):
+        (ax, ay), (bx, by) = clip[i], clip[(i + 1) % len(clip)]
+        out = _clip(out, lambda x, y: -sgn * ((bx - ax) * (y - ay) - (by - ay) * (x - ax)))
+        if len(out) < 3:
+            return []
+    return out
+
+
+def _inside_convex(pt, clip):
+    area = sum(clip[i][0] * clip[(i + 1) % len(clip)][1] - clip[(i + 1) % len(clip)][0] * clip[i][1]
+               for i in range(len(clip)))
+    sgn = 1 if area > 0 else -1
+    x, y = pt
+    for i in range(len(clip)):
+        (ax, ay), (bx, by) = clip[i], clip[(i + 1) % len(clip)]
+        if sgn * ((bx - ax) * (y - ay) - (by - ay) * (x - ax)) < 0:
+            return False
+    return True
+
+
+def _human_eye(p, x, y, rx, ry, look, sx):
+    """A bloodshot human eye peering out from deep inside a costume eye socket."""
+    rng = _rng("human-eye", sx)
+    lx, ly = look
+    if abs(lx) < 1e-6 and abs(ly) < 1e-6:
+        lx, ly = 0.55, 0.15  # looking slightly off to the side
+    lx, ly = clamp(lx, -1, 1), clamp(ly, -1, 1)
+    # skin around the eye, in deep shadow
+    _blob(p, (104, 66, 56), [(x, y, rx * 1.1, ry * 0.95)], lo=0.16, hi=0.75, ol=0, light=(-0.1, 0.1), shrink=0.5)
+    w, h = rx * 0.98, ry * 0.66
+    alm = []
+    n = 16
+    for i in range(n + 1):
+        t = -1 + 2 * i / n
+        alm.append((x + t * w, y - h * (1 - t * t) ** 0.7 - 0.12 * h * t * sx))
+    for i in range(n - 1, 0, -1):
+        t = -1 + 2 * i / n
+        alm.append((x + t * w, y + h * 0.78 * (1 - t * t) ** 0.85))
+    # sclera: pink-red near the corners, dirty white in the middle
+    p.poly((170, 96, 86), alm)
+    for k, c in ((0.9, (208, 160, 142)), (0.76, (226, 202, 184)), (0.56, (236, 224, 208))):
+        p.poly(c, [(x + (px - x) * k, y - h * 0.08 + (py - y) * k) for px, py in alm])
+    # veins creeping in from the corners
+    for i in range(9):
+        side = -1 if i % 2 else 1
+        t0 = side * (0.72 + 0.2 * rng.random())
+        sy = (rng.random() - 0.5) * h * 0.7
+        pts = [(x + t0 * w, y + sy)]
+        for _ in range(3 + int(rng.random() * 2)):
+            px, py = pts[-1]
+            pts.append((px - side * w * (0.12 + 0.12 * rng.random()), py + (rng.random() - 0.5) * h * 0.35))
+        pts = [q for q in pts if _inside_convex(q, alm)]
+        if len(pts) >= 2:
+            c = lerp_color((150, 16, 18), (206, 54, 50), rng.random())
+            _stroke(p, c, pts, [0.016 * (1 - j / len(pts)) + 0.005 for j in range(len(pts))])
+    # iris
+    ir = h * 0.98
+    ix = x + lx * (w - ir) * 0.75
+    iy = y - h * 0.08 + ly * h * 0.3
+    ring = _clip_convex(_epts(ix, iy, ir, ir, 30), alm)
+    if ring:
+        p.poly((40, 24, 12), ring)
+    for k, c in ((0.9, (96, 60, 28)), (0.7, (128, 86, 40)), (0.5, (146, 116, 58))):
+        q = _clip_convex(_epts(ix, iy, ir * k, ir * k, 26), alm)
+        if q:
+            p.poly(c, q)
+    for i in range(14):
+        a = 2 * math.pi * i / 14 + 0.2
+        a0 = (ix + math.cos(a) * ir * 0.42, iy + math.sin(a) * ir * 0.42)
+        a1 = (ix + math.cos(a) * ir * 0.86, iy + math.sin(a) * ir * 0.86)
+        if _inside_convex(a0, alm) and _inside_convex(a1, alm):
+            _stroke(p, (84, 54, 26) if i % 2 else (156, 120, 64), [a0, a1], 0.007)
+    q = _clip_convex(_epts(ix, iy, ir * 0.38, ir * 0.38, 20), alm)
+    if q:
+        p.poly((4, 2, 2), q)
+    # shadow of the upper lid on the eyeball
+    top = alm[:n + 1]
+    sh = _clip(alm, lambda X, Y: Y - (min(top, key=lambda t: abs(t[0] - X))[1] + h * 0.16))
+    if len(sh) >= 3:
+        p.poly((96, 52, 44), sh)
+    sh = _clip(alm, lambda X, Y: Y - (min(top, key=lambda t: abs(t[0] - X))[1] + h * 0.08))
+    if len(sh) >= 3:
+        p.poly((40, 18, 16), sh)
+    # wet highlights
+    p.ellipse((255, 252, 246), ix - ir * 0.32, iy - ir * 0.12, ir * 0.18, ir * 0.13)
+    p.ellipse((240, 230, 220), x - w * 0.45, y + h * 0.05, w * 0.06, h * 0.08)
+    _stroke(p, (226, 150, 140), alm[n + 2:-2], 0.012)
+    # lids and the tear duct
+    _stroke(p, (26, 12, 10), top, 0.03)
+    _stroke(p, (120, 60, 50), alm[n:] + [alm[0]], 0.016)
+    _stroke(p, (60, 34, 28), [(px, py - h * 0.55) for px, py in top[3:-3]], 0.016)
+    p.ellipse((196, 96, 92), x - sx * w * 0.93, y + h * 0.05, w * 0.07, h * 0.16)
 
 
 def _lid(p, x, y, rx, ry, lid, tilt, col):
@@ -516,6 +619,33 @@ def _maw(p, ytop, ybot, hwt, hwb, drop, rng):
                          (wx + 0.11, ytop + sag)], 0.016)
 
 
+def _maw_human(p, ytop, ybot, hwt, hwb, ym, drop, rng):
+    """Mouth interior when someone is stuffed inside the suit: lips, gums and human teeth."""
+    h = ybot - ytop
+    rb = min(0.16, h * 0.45)
+    pts = [(-hwt, ytop), (hwt, ytop)]
+    pts += _arcpts(hwb - rb, ybot - rb, rb, rb, 0, 90, 5)
+    pts += _arcpts(-hwb + rb, ybot - rb, rb, rb, 90, 180, 5)
+    p.poly((18, 6, 6), pts)
+    cy = ym + drop * 0.5
+    hw = min(hwt, hwb) * 0.62
+    # lips (dark, bruised) around a mouth opening
+    _blob(p, (120, 58, 54), [(0, cy, hw * 1.12, 0.1 + drop * 0.55)], lo=0.3, hi=0.8, ol=0, shrink=0.4)
+    oh = 0.035 + drop * 0.42
+    p.ellipse((8, 2, 2), 0, cy, hw * 0.92, oh)
+    # gums and teeth
+    p.ellipse((150, 52, 54), 0, cy - oh * 0.7, hw * 0.86, 0.045)
+    p.ellipse((140, 48, 50), 0, cy + oh * 0.7, hw * 0.8, 0.04)
+    _teeth(p, 0, hw * 0.72, cy - oh * 0.75 - 0.03, 0.075 + oh * 0.35, 8, True, _rng("hteeth", 1),
+           col=(230, 222, 200), curve=0.03, jag=0.15, ol=0.01)
+    _teeth(p, 0, hw * 0.64, cy + oh * 0.75 + 0.03, 0.065 + oh * 0.3, 8, False, _rng("hteeth", 2),
+           col=(222, 212, 188), curve=-0.02, jag=0.15, ol=0.01)
+    # something dark seeping out at the corners
+    for sx in (-1, 1):
+        _stroke(p, (70, 6, 8), [(sx * hw * 0.95, cy), (sx * hw * 1.0, cy + 0.08), (sx * hw * 0.96, ybot - 0.02)],
+                [0.035, 0.025, 0.012])
+
+
 def _jaw(p, ym, hw, drop, col, jw=1.0, Ll=0.19, chin=0.3, side=0.13, lo=0.5, hi=1.05, occl=None):
     """The costume's lower jaw: a U-shaped piece hanging from hinges in the cheeks.
 
@@ -534,18 +664,16 @@ def _jaw(p, ym, hw, drop, col, jw=1.0, Ll=0.19, chin=0.3, side=0.13, lo=0.5, hi=
 
         def below(x, y):
             u = min(1.0, abs(x) / rx)
-            return y - (cy + ry * math.sqrt(1 - u * u) + 0.09)
-        sh = _clip(pts, below)
-        if len(sh) >= 3:
-            p.poly(shade(col, 0.42), sh)
-            sh2 = _clip(pts, lambda x, y: below(x, y) + 0.045)
-            if len(sh2) >= 3:
-                p.poly(shade(col, 0.3), sh2)
+            return y - (cy + ry * math.sqrt(1 - u * u) + 0.16)
+        for off, k in ((0.0, 0.7), (0.05, 0.5), (0.1, 0.36), (0.13, 0.26)):
+            sh = _clip(pts, lambda x, y: below(x, y) + off)
+            if len(sh) >= 3:
+                p.poly(shade(col, k), sh)
     return yc
 
 
 def _mouth(p, key, ym, hw, drop, jaw_col, jw=1.0, upper=True, sharp=False, Lu=0.2, Ll=0.19, nu=9, nl=8,
-           chin=0.3, tcol=TEETH, jaw=True):
+           chin=0.3, tcol=TEETH, jaw=True, human=False):
     """Lower jaw, mouth cavity (with endo inside) and teeth rows.
 
     ``ym`` is where the upper teeth tips meet the lower ones when closed.
@@ -554,7 +682,10 @@ def _mouth(p, key, ym, hw, drop, jaw_col, jw=1.0, upper=True, sharp=False, Lu=0.
     yc = ym + drop + Ll
     if jaw:
         _jaw(p, ym, hw, drop, jaw_col, jw, Ll, chin)
-    _maw(p, ym - 0.17, yc + 0.01, hw * 0.9, hwj * 0.88, drop, _rng(key, "maw"))
+    if human:
+        _maw_human(p, ym - 0.17, yc + 0.01, hw * 0.9, hwj * 0.88, ym, drop, _rng(key, "hmaw"))
+    else:
+        _maw(p, ym - 0.17, yc + 0.01, hw * 0.9, hwj * 0.88, drop, _rng(key, "maw"))
     _teeth(p, 0, hwj * 0.86, yc + 0.035, Ll + 0.035, nl, False, _rng(key, "lt"), col=tcol, sharp=sharp, curve=0.03)
     if upper:
         _teeth(p, 0, hw * 0.9, ym - Lu, Lu, nu, True, _rng(key, "ut"), col=tcol, sharp=sharp, curve=-0.03)
@@ -609,7 +740,7 @@ def _head_bear(p, pal, mouth, eyes, look, name):
     _blob(p, fur, [(0, -0.2, 0.96, 0.78), (0, 0.28, 1.05, 0.58)])
     _grime(p, rng, fur, (0, -0.25, 0.62, 0.38), pal.get("grime", 4), 0.025, 0.07)
     _top_hat(p, 0.02, -0.86)
-    _mouth(p, name, 0.64, 0.46, drop, jaw, jw, Lu=0.21, Ll=0.17, nl=10, jaw=False)
+    _mouth(p, name, 0.64, 0.46, drop, jaw, jw, Lu=0.21, Ll=0.17, nl=10, jaw=False, human=eyes == "human")
     _blob(p, muz, [(-0.25, 0.29, 0.39, 0.25), (0.25, 0.29, 0.39, 0.25), (0, 0.12, 0.3, 0.22)], lo=0.62, hi=1.08)
     _grime(p, _rng(name, "muz"), muz, (0, 0.33, 0.45, 0.13), 3, 0.02, 0.045, k=(0.78, 0.9))
     _nose(p, 0, 0.07, 0.17, 0.105, pal["nose"])
@@ -628,14 +759,23 @@ def _head_bonnie(p, pal, mouth, eyes, look, name="Bonnie"):
     drop = 0.8 * mouth
     jw = 1 + 0.4 * mouth
     for sx in (-1, 1):
-        ear = [(sx * 0.34, -0.55), (sx * 0.42, -1.5), (sx * 0.48, -2.4), (sx * 0.47, -2.84)]
-        _tube(p, fur, ear, [0.44, 0.52, 0.48, 0.3], lo=0.55, hi=1.1)
-        inner = [(sx * 0.36, -0.95), (sx * 0.43, -1.6), (sx * 0.47, -2.35), (sx * 0.465, -2.66)]
-        _tube(p, pal["ear"], inner, [0.16, 0.28, 0.25, 0.12], lo=0.6, hi=1.05, ol=0.02, light=(0.3, -0.3))
+        bend = 0.1 if sx > 0 else 0.0
+        ear, ws, inner, wi = [], [], [], []
+        for i in range(9):
+            t = i / 8
+            x = sx * (0.33 + 0.16 * t - 0.04 * t * t) + bend * t ** 3
+            y = -0.55 - 2.3 * t
+            ear.append((x, y))
+            ws.append(0.44 + 0.2 * math.sin(math.pi * min(1.0, t * 1.15)) * (1 - t * 0.2) - 0.16 * t ** 4)
+            if 0.15 <= t <= 0.93:
+                inner.append((x + sx * 0.01, y + 0.02))
+                wi.append(0.08 + 0.22 * math.sin(math.pi * (t - 0.15) / 0.78))
+        _tube(p, fur, ear, ws, lo=0.5, hi=1.1)
+        _tube(p, pal["ear"], inner, wi, lo=0.55, hi=1.08, ol=0.02, light=(0.3, -0.3))
     _jaw(p, 0.6, 0.46, drop, fur, jw, 0.18, 0.34 + 0.1 * mouth, occl=(0.3, 1.0, 0.56))
     _blob(p, fur, [(0, -0.24, 0.86, 0.74), (0, 0.3, 1.0, 0.56)])
     _grime(p, rng, fur, (0, -0.25, 0.55, 0.38), 4, 0.025, 0.06)
-    _mouth(p, name, 0.6, 0.46, drop, fur, jw, upper=False, Ll=0.18, nl=10, jaw=False)
+    _mouth(p, name, 0.6, 0.46, drop, fur, jw, upper=False, Ll=0.18, nl=10, jaw=False, human=eyes == "human")
     _blob(p, muz, [(-0.3, 0.33, 0.42, 0.3), (0.3, 0.33, 0.42, 0.3), (0, 0.12, 0.25, 0.2)], lo=0.62, hi=1.1)
     _grime(p, _rng(name, "muz"), muz, (0, 0.36, 0.5, 0.15), 3, 0.02, 0.045, k=(0.78, 0.9))
     _nose(p, 0, 0.1, 0.12, 0.08, pal["nose"])
@@ -656,7 +796,7 @@ def _head_chica(p, pal, mouth, eyes, look, name="Chica"):
     _jaw(p, 0.52, 0.44, drop, shade(beak, 0.9), jw, 0.17, 0.28 + 0.1 * mouth, occl=(0.3, 0.98, 0.6))
     _blob(p, fur, [(0, -0.12, 0.93, 0.88), (0, 0.3, 0.98, 0.6)])
     _grime(p, rng, fur, (0, -0.25, 0.55, 0.4), 4, 0.025, 0.06)
-    _mouth(p, name, 0.52, 0.44, drop, shade(beak, 0.9), jw, Lu=0.2, Ll=0.17, nl=10, jaw=False)
+    _mouth(p, name, 0.52, 0.44, drop, shade(beak, 0.9), jw, Lu=0.2, Ll=0.17, nl=10, jaw=False, human=eyes == "human")
     _blob(p, beak, [(0, 0.22, 0.6, 0.24), (0, 0.34, 0.36, 0.18)], lo=0.6, hi=1.12)
     for sx in (-1, 1):
         p.ellipse(shade(beak, 0.3), sx * 0.12, 0.13, 0.04, 0.025)
@@ -670,11 +810,11 @@ def _head_chica(p, pal, mouth, eyes, look, name="Chica"):
 def _head_foxy(p, pal, mouth, eyes, look, name="Foxy"):
     rng = _rng(name, "head")
     fur, muz = pal["fur"], pal["muz"]
-    drop = 0.24 + 0.74 * mouth
-    jw = 1 + 0.36 * mouth
+    drop = 0.24 + 0.72 * mouth
+    jw = 1 + 0.45 * mouth
     # ears; his left ear (screen right) is torn and shows its metal frame
-    _stroke(p, METAL, [(0.8, -1.76), (0.92, -0.52)], 0.04)
-    _stroke(p, (90, 90, 98), [(0.84, -1.3), (0.62, -1.0)], 0.03)
+    _tube(p, METAL, [(0.735, -1.7), (0.85, -0.6)], 0.04, lo=0.5, hi=1.2, ol=0.012)
+    _tube(p, (100, 100, 108), [(0.76, -1.38), (0.86, -1.18), (0.8, -0.98)], 0.03, lo=0.5, hi=1.1, ol=0.01)
     for sx in (-1, 1):
         if sx < 0:
             ear = [(-0.28, -0.6), (-0.78, -1.82), (-0.92, -0.5)]
@@ -685,20 +825,16 @@ def _head_foxy(p, pal, mouth, eyes, look, name="Foxy"):
         inner = [(sx * 0.42, -0.68), (sx * 0.74, -1.52), (sx * 0.8, -0.64)] if sx < 0 else \
             [(0.42, -0.68), (0.73, -1.5), (0.66, -1.06), (0.78, -0.64)]
         _slab(p, pal["ear"], inner, lo=0.45, hi=0.9, ol=0.02)
-    yc = _jaw(p, 0.68, 0.3, drop, shade(muz, 0.9), jw, 0.19, 0.32 + 0.1 * mouth, occl=(0.15, 0.9, 0.5))
+    yc = _jaw(p, 0.68, 0.33, drop, shade(muz, 0.9), jw, 0.19, 0.32 + 0.1 * mouth, occl=(0.15, 0.9, 0.5))
     _blob(p, fur, [(0, -0.2, 0.86, 0.72), (0, 0.15, 0.9, 0.5)])
     for sx in (-1, 1):
         tuft = [(sx * 0.76, -0.08), (sx * 1.1, 0.02), (sx * 0.92, 0.13), (sx * 1.14, 0.28), (sx * 0.9, 0.34),
                 (sx * 1.04, 0.5), (sx * 0.7, 0.48)]
         _slab(p, fur, tuft, lo=0.5, hi=1.0)
     _grime(p, rng, fur, (0, -0.25, 0.55, 0.38), 6, 0.03, 0.08)
-    _mouth(p, name, 0.68, 0.3, drop, muz, jw, sharp=True, Lu=0.21, Ll=0.19, nu=7, nl=6, jaw=False)
+    _mouth(p, name, 0.68, 0.33, drop, muz, jw, sharp=True, Lu=0.25, Ll=0.19, nu=7, nl=6, jaw=False, human=eyes == "human")
     # torn patch on the jaw showing metal
-    tx, ty = 0.15 * jw, yc + 0.14
-    _slab(p, (36, 30, 30), [(tx - 0.08, ty - 0.05), (tx + 0.1, ty - 0.07), (tx + 0.12, ty + 0.05),
-                            (tx + 0.02, ty + 0.1), (tx - 0.1, ty + 0.06)], lo=1.0, hi=1.0, ol=0.014,
-          olc=shade(muz, 1.1), n=1)
-    _stroke(p, METAL, [(tx - 0.06, ty + 0.01), (tx + 0.09, ty - 0.01)], 0.035)
+    _tear(p, 0.2 * jw, yc + 0.15, 0.1, 0.07, _rng(name, "jawtear"), shade(muz, 0.75))
     _blob(p, muz, [(0, 0.3, 0.33, 0.26), (-0.17, 0.44, 0.19, 0.15), (0.17, 0.44, 0.19, 0.15)], lo=0.6, hi=1.08)
     _tube(p, fur, [(0, -0.3), (0, -0.05), (0, 0.2)], [0.42, 0.34, 0.26], lo=0.6, hi=1.1, ol=0.0)
     _nose(p, 0, 0.24, 0.14, 0.095, pal["nose"])
@@ -740,7 +876,7 @@ def _head_endo(p, pal, mouth, eyes, look, name="Endo"):
         p.circle(shade(m, 0.4), bx, by, 0.035)
         p.circle(shade(m, 1.2), bx - 0.01, by - 0.01, 0.018)
     _slab(p, m, [(-0.5, 0.16), (0.5, 0.16), (0.46, 0.36), (-0.46, 0.36)], lo=0.55, hi=1.1, ol=0.025)
-    _mouth(p, name, ym, 0.42, drop, m, jw, Lu=0.19, Ll=0.17, nu=10, nl=9, tcol=(222, 220, 214), jaw=False)
+    _mouth(p, name, ym, 0.42, drop, m, jw, Lu=0.19, Ll=0.17, nu=10, nl=9, tcol=(222, 220, 214), jaw=False, human=eyes == "human")
     for sx in (-1, 1):
         p.circle((60, 60, 66), sx * 0.36 * jw, ym + drop + 0.32, 0.03)
     # nose plate
@@ -837,31 +973,39 @@ def _foot(p, pal, x, y, s, col):
         _blob(p, fc, [(x + i * 0.22 * s, y + 0.12 * s, 0.13 * s, 0.1 * s)], lo=0.5, hi=1.0, ol=0.02)
 
 
-def _endo_leg(p, hip, knee, ankle, sx=1, foot=1.0, metal=METAL):
-    _tube(p, metal, [hip, knee], 0.13, lo=0.45, hi=1.15)
-    _tube(p, (80, 80, 88), [(hip[0] + sx * 0.09, hip[1] + 0.1), (knee[0] + sx * 0.09, knee[1] - 0.12)], 0.05,
-          lo=0.5, hi=1.1, ol=0.012)
-    _tube(p, metal, [knee, ankle], 0.12, lo=0.45, hi=1.15)
-    _tube(p, (80, 80, 88), [(knee[0] - sx * 0.08, knee[1] + 0.12), (ankle[0] - sx * 0.08, ankle[1] - 0.12)], 0.05,
-          lo=0.5, hi=1.1, ol=0.012)
-    _blob(p, metal, [(knee[0], knee[1], 0.12, 0.12)], lo=0.4, hi=1.2, ol=0.02)
-    _blob(p, metal, [(ankle[0], ankle[1], 0.09, 0.09)], lo=0.4, hi=1.2, ol=0.02)
+def _endo_leg(p, hip, knee, ankle, sx=1, foot=1.0, metal=METAL, w=0.15):
+    pist = (84, 84, 92)
+    _tube(p, metal, [hip, knee], w, lo=0.42, hi=1.15)
+    _tube(p, pist, [(hip[0] + sx * w * 0.75, hip[1] + 0.12), (knee[0] + sx * w * 0.7, knee[1] - 0.14)], w * 0.38,
+          lo=0.45, hi=1.1, ol=0.012)
+    _tube(p, metal, [(hip[0] + sx * w * 0.75, hip[1] + 0.12), (lerp(hip[0], knee[0], 0.45) + sx * w * 0.72,
+                                                              lerp(hip[1], knee[1], 0.45))], w * 0.55,
+          lo=0.42, hi=1.1, ol=0.012)
+    _tube(p, metal, [knee, ankle], w * 0.92, lo=0.42, hi=1.15)
+    _tube(p, pist, [(knee[0] - sx * w * 0.7, knee[1] + 0.14), (ankle[0] - sx * w * 0.65, ankle[1] - 0.14)],
+          w * 0.36, lo=0.45, hi=1.1, ol=0.012)
+    _blob(p, metal, [(hip[0], hip[1], w * 0.95, w * 0.95)], lo=0.35, hi=1.2, ol=0.02)
+    _blob(p, metal, [(knee[0], knee[1], w * 0.85, w * 0.85)], lo=0.35, hi=1.2, ol=0.02)
+    _blob(p, metal, [(ankle[0], ankle[1], w * 0.62, w * 0.62)], lo=0.35, hi=1.2, ol=0.02)
     x, y = ankle[0] + sx * 0.04, ankle[1] + 0.22 * foot
     s = foot
-    _slab(p, metal, [(x - 0.2 * s, y - 0.16 * s), (x + 0.2 * s, y - 0.16 * s), (x + 0.34 * s, y + 0.1 * s),
-                     (x - 0.34 * s, y + 0.1 * s)], lo=0.45, hi=1.1)
+    _slab(p, metal, [(x - 0.2 * s, y - 0.16 * s), (x + 0.2 * s, y - 0.16 * s), (x + 0.36 * s, y + 0.1 * s),
+                     (x - 0.36 * s, y + 0.1 * s)], lo=0.42, hi=1.1)
+    p.circle((40, 40, 46), x, y - 0.04 * s, 0.04 * s)
     for i in (-1, 0, 1):
-        _tube(p, metal, [(x + i * 0.2 * s, y + 0.05 * s), (x + i * 0.27 * s, y + 0.18 * s)], 0.08 * s,
-              lo=0.45, hi=1.1, ol=0.015)
+        _tube(p, metal, [(x + i * 0.21 * s, y + 0.05 * s), (x + i * 0.28 * s, y + 0.19 * s)], 0.085 * s,
+              lo=0.42, hi=1.1, ol=0.015)
 
 
 def _tear(p, x, y, rx, ry, rng, fray=None):
     """A ragged hole in the costume with endoskeleton parts inside."""
     pts = []
-    n = 22
+    n = 26
+    ph = [rng.random() * 6.3 for _ in range(3)]
     for i in range(n):
-        a = 2 * math.pi * (i + 0.3 * rng.random()) / n
-        r = (0.66 + 0.2 * rng.random()) if i % 2 else (0.9 + 0.3 * rng.random())
+        a = 2 * math.pi * i / n
+        r = (0.86 + 0.12 * math.sin(2 * a + ph[0]) + 0.08 * math.sin(3 * a + ph[1])
+             + 0.06 * math.sin(5 * a + ph[2]) + (0.1 * rng.random() if i % 2 else -0.06 * rng.random()))
         pts.append((x + math.cos(a) * rx * r, y + math.sin(a) * ry * r))
     if fray:
         p.poly(shade(fray, 0.45), [(x + (px - x) * 1.16, y + (py - y) * 1.16) for px, py in pts])
@@ -946,13 +1090,18 @@ def _cupcake(p):
 
 
 def _bib(p, x, y):
-    _blob(p, (238, 234, 222), [(x, y + 0.05, 0.86, 0.7), (x, y - 0.6, 0.52, 0.42)], lo=0.6, hi=1.02, ol=0.03,
-          olc=(80, 76, 70))
-    _grime(p, _rng("bib"), (238, 234, 222), (x, y + 0.1, 0.5, 0.4), 5, 0.02, 0.06, k=(0.8, 0.9))
+    white = (238, 234, 222)
+    pts = [(x - 0.42, y - 0.95), (x + 0.42, y - 0.95), (x + 0.62, y - 0.72), (x + 0.8, y - 0.4),
+           (x + 0.9, y + 0.02)]
+    pts += _arcpts(x, y + 0.02, 0.9, 0.62, 0, 180, 18)[1:-1]
+    pts += [(x - 0.9, y + 0.02), (x - 0.8, y - 0.4), (x - 0.62, y - 0.72)]
+    _slab(p, white, pts, lo=0.62, hi=1.03, ol=0.03, olc=(80, 76, 70), light=(-0.3, -0.3))
+    _stitches(p, [(px * 0.92 + x * 0.08, py * 0.94 + y * 0.06) for px, py in pts[4:-3]], (200, 196, 186), 0.018)
+    _grime(p, _rng("bib"), white, (x, y + 0.1, 0.5, 0.35), 5, 0.02, 0.05, k=(0.82, 0.92))
     cols = [(226, 56, 60), (246, 146, 30), (60, 168, 70), (60, 120, 220), (150, 70, 200),
             (50, 140, 230), (232, 70, 140), (240, 180, 20), (60, 170, 90), (226, 56, 60)]
     ci = 0
-    for row, word, yy in ((0, "LET'S", y - 0.2), (1, "EAT!!", y + 0.22)):
+    for row, word, yy in ((0, "LET'S", y - 0.25), (1, "EAT!!", y + 0.19)):
         size = 0.36
         f = font(max(6, int(round(size * p.s))), bold=True)
         widths = [f.size(ch)[0] / p.s for ch in word]
@@ -1024,57 +1173,60 @@ def _body_bear(p, name, pal, prop, pose):
         _bowtie(p, 0, 1.4, 1.0, pal["tie"])
 
 
-def _body_foxy(p, pal, pose, step):
-    fur = pal["fur"]
-    rng = _rng("Foxy", "body")
-    run = pose == "run"
-    if run:
-        L = -1 if step % 2 == 0 else 1
-        # back leg first (further away), then the leading leg
-        _endo_leg(p, (-L * 0.42, 3.45), (-L * 0.55, 4.4), (-L * 0.48, 4.85), sx=-L, foot=0.8)
-        _endo_leg(p, (L * 0.42, 3.45), (L * 0.66, 4.05), (L * 0.72, 5.6), sx=L, foot=1.15)
-        top, ty = 1.48, -0.5
-    else:
-        for sx in (-1, 1):
-            _endo_leg(p, (sx * 0.45, 4.35), (sx * 0.55, 5.05), (sx * 0.58, 5.62), sx=sx)
-        top, ty = 1.95, 0.0
-    # neck (endo)
-    _tube(p, METAL, [(0, 0.7), (0, top - 0.4)], 0.18, lo=0.45, hi=1.1)
-    _blob(p, shade(fur, 0.6), [(0, top - 0.75 + 0.0, 0.42, 0.3)], lo=0.4, hi=0.9)
-    # pants (tattered shorts)
-    py = 3.8 + ty
+def _foxy_pants(p, pal, py, rng):
     pants = [(-0.98, py), (0.98, py), (1.02, py + 0.95)]
-    hem = []
     for i in range(9):
-        x = 1.0 - i * 0.12
-        hem.append((x, py + 0.95 + (0.12 if i % 2 else -0.02)))
-    hem += [(0.06, py + 0.62), (-0.06, py + 0.62)]
+        pants.append((1.0 - i * 0.12, py + 0.95 + (0.12 if i % 2 else -0.02) + 0.05 * rng.random()))
+    pants += [(0.06, py + 0.62), (-0.06, py + 0.62)]
     for i in range(9):
-        x = -0.04 - i * 0.12
-        hem.append((x, py + 0.95 + (0.12 if i % 2 else -0.02)))
-    pants += hem
+        pants.append((-0.04 - i * 0.12, py + 0.95 + (0.12 if i % 2 else -0.02) + 0.05 * rng.random()))
     pants.append((-1.02, py + 0.95))
     _slab(p, pal["pants"], pants, lo=0.55, hi=1.05)
     _grime(p, rng, pal["pants"], (0, py + 0.4, 0.7, 0.3), 6, 0.04, 0.1)
-    # torso
-    ry = 0.86 if run else 1.0
+    _stitches(p, [(-0.9, py + 0.12), (0.9, py + 0.12)], shade(pal["pants"], 0.45), 0.02)
+    _tear(p, 0.55, py + 0.5, 0.14, 0.1, _rng("Foxy", "pt"), shade(pal["pants"], 0.7))
+
+
+def _foxy_torso(p, pal, top, ry, rng):
+    fur = pal["fur"]
     parts = [(0, top + 0.47 * ry, 1.15, 1.02 * ry), (0, top + 1.25 * ry, 1.0, 0.86 * ry)]
     for sx in (-1, 1):
         parts.append((sx * 0.95, top - 0.03, 0.42, 0.38))
     _blob(p, fur, parts, lo=0.55, hi=1.1)
-    _blob(p, pal["muz"], [(0, top + 1.1 * ry, 0.6, 0.72 * ry)], lo=0.6, hi=1.0, ol=0.02)
-    _grime(p, rng, fur, (0, top + 0.9, 0.7, 0.8), 10, 0.04, 0.12)
-    fray = shade(fur, 1.25)
-    _tear(p, 0.45, top + 0.38, 0.32, 0.36, _rng("Foxy", "t1"), fray)
-    _tear(p, -0.38, top + 1.38 * ry, 0.28, 0.26, _rng("Foxy", "t2"), shade(pal["muz"], 1.1))
-    _tear(p, -0.95, top + 0.02, 0.18, 0.16, _rng("Foxy", "t3"), fray)
-    # arms
-    if run:
-        _arm(p, pal, (1.12, top), (1.6, top + 0.9 - 0.15 * L), (1.32, top + 1.65), hand="foxy", thumb=-1, tears=True)
-        _arm(p, pal, (-1.12, top), (-1.78, top - 0.4), (-1.62, top - 1.3), hand="hook", thumb=1)
-    else:
-        _arm(p, pal, (1.15, 1.95), (1.5, 3.0), (1.45, 3.85), hand="foxy", thumb=-1, tears=True)
-        _arm(p, pal, (-1.15, 1.95), (-1.5, 2.98), (-1.38, 3.78), hand="hook", thumb=1)
+    _grime(p, rng, fur, (0, top + 0.7 * ry, 0.85, 0.9 * ry), 8, 0.03, 0.09)
+    bc = pal["muz"]
+    _blob(p, bc, [(0, top + 1.1 * ry, 0.6, 0.72 * ry)], lo=0.6, hi=1.0, ol=0.02)
+    _grime(p, _rng("Foxy", "belly"), bc, (0, top + 1.1 * ry, 0.4, 0.5 * ry), 4, 0.025, 0.06, k=(0.8, 0.9))
+    fray = lerp_color(fur, (226, 190, 150), 0.45)
+    _tear(p, 0.45, top + 0.38 * ry, 0.32, 0.36 * ry, _rng("Foxy", "t1"), fray)
+    _tear(p, -0.36, top + 1.4 * ry, 0.26, 0.24 * ry, _rng("Foxy", "t2"), shade(bc, 0.8))
+    _tear(p, -0.95, top + 0.02, 0.17, 0.15, _rng("Foxy", "t3"), fray)
+
+
+def _body_foxy(p, pal, pose, step):
+    fur = pal["fur"]
+    rng = _rng("Foxy", "body")
+    if pose == "run":
+        L = -1 if step % 2 == 0 else 1
+        # the body is further from the viewer than the lunging head: draw it smaller
+        bp = p.sub(0, 0.12, scale=0.9, rot=3.0 * L)
+        _endo_leg(bp, (-L * 0.4, 3.35), (-L * 0.62, 4.3), (-L * 0.92, 3.98), sx=-L, foot=0.72, w=0.14)
+        _endo_leg(bp, (L * 0.42, 3.4), (L * 0.74, 4.62), (L * 0.64, 6.02), sx=L, foot=1.28, w=0.21)
+        _tube(bp, METAL, [(0, 0.4), (0, 0.9)], 0.2, lo=0.45, hi=1.1)
+        _foxy_pants(bp, pal, 2.55, _rng("Foxy", "pants"))
+        _foxy_torso(bp, pal, 1.05, 0.8, rng)
+        _arm(bp, pal, (1.1, 1.05), (1.62, 1.85 - 0.15 * L), (1.2 + 0.1 * L, 2.5), hand="foxy", thumb=-1,
+             tears=True)
+        _arm(bp, pal, (-1.08, 1.05), (-1.74, 0.55), (-1.56, -0.4), hand="hook", thumb=1)
+        return
+    for sx in (-1, 1):
+        _endo_leg(p, (sx * 0.45, 4.35), (sx * 0.55, 5.05), (sx * 0.58, 5.62), sx=sx, w=0.17)
+    _tube(p, METAL, [(0, 0.7), (0, 1.55)], 0.18, lo=0.45, hi=1.1)
+    _blob(p, shade(fur, 0.45), [(0, 1.22, 0.36, 0.26)], lo=0.4, hi=0.9)
+    _foxy_pants(p, pal, 3.8, _rng("Foxy", "pants"))
+    _foxy_torso(p, pal, 1.95, 1.0, rng)
+    _arm(p, pal, (1.15, 1.95), (1.5, 3.0), (1.45, 3.85), hand="foxy", thumb=-1, tears=True)
+    _arm(p, pal, (-1.15, 1.95), (-1.5, 2.98), (-1.38, 3.78), hand="hook", thumb=1)
 
 
 def _body_golden_slump(p, pal):
@@ -1083,8 +1235,10 @@ def _body_golden_slump(p, pal):
     # torso sagging forward and to the side
     parts = [(0.12, 1.5, 1.32, 1.08), (0.2, 2.35, 1.32, 1.05), (-0.98, 0.95, 0.46, 0.42), (1.22, 1.12, 0.46, 0.42)]
     _blob(p, fur, parts, lo=0.5, hi=1.05)
-    _blob(p, pal["belly"], [(0.18, 2.2, 0.84, 0.92)], lo=0.6, hi=1.0, ol=0.025)
-    _grime(p, rng, fur, (0.15, 2.0, 0.8, 0.9), 14, 0.04, 0.13)
+    _grime(p, rng, fur, (0.15, 1.8, 1.0, 1.0), 14, 0.03, 0.1)
+    bc = pal["belly"]
+    _blob(p, bc, [(0.18, 2.2, 0.84, 0.92)], lo=0.6, hi=1.0, ol=0.025)
+    _grime(p, _rng("Golden", "sbelly"), bc, (0.18, 2.2, 0.55, 0.6), 8, 0.025, 0.07, k=(0.78, 0.9))
     # legs sticking out towards the viewer, soles up
     for sx in (-1, 1):
         _blob(p, fur, [(sx * 0.72, 3.2, 0.55, 0.4)], lo=0.5, hi=1.05)
@@ -1097,44 +1251,58 @@ def _body_golden_slump(p, pal):
     _bowtie(p.sub(0.05, 0.95, rot=20), 0, 0, 1.0, pal["tie"])
 
 
+def _endo_chest(p, m, y0=1.62):
+    chest = [(-1.0, y0), (1.0, y0), (0.94, y0 + 0.9), (0.56, y0 + 1.42), (-0.56, y0 + 1.42), (-0.94, y0 + 0.9)]
+    _slab(p, m, chest, lo=0.42, hi=1.12)
+    rec = [(-0.74, y0 + 0.2), (0.74, y0 + 0.2), (0.7, y0 + 0.86), (0.42, y0 + 1.22), (-0.42, y0 + 1.22),
+           (-0.7, y0 + 0.86)]
+    p.poly((18, 16, 18), rec)
+    for i, yy in enumerate((0.38, 0.62, 0.86)):
+        hw = 0.68 - i * 0.1
+        _tube(p, m, [(-hw, y0 + yy), (0, y0 + yy + 0.08), (hw, y0 + yy)], 0.1, lo=0.4, hi=1.1, ol=0.015)
+    _slab(p, m, [(-0.09, y0 + 0.16), (0.09, y0 + 0.16), (0.08, y0 + 1.2), (-0.08, y0 + 1.2)], lo=0.42, hi=1.15,
+          ol=0.015)
+    for bx in (-0.82, 0.82):
+        p.circle(shade(m, 0.4), bx, y0 + 0.12, 0.035)
+        p.circle(shade(m, 1.2), bx - 0.01, y0 + 0.11, 0.016)
+
+
 def _body_endo(p, pal):
     m = pal["fur"]
     # legs
     for sx in (-1, 1):
-        _endo_leg(p, (sx * 0.42, 4.3), (sx * 0.52, 5.02), (sx * 0.55, 5.6), sx=sx, metal=m)
+        _endo_leg(p, (sx * 0.44, 4.32), (sx * 0.52, 5.02), (sx * 0.55, 5.6), sx=sx, metal=m, w=0.17)
     # spine and pelvis
-    _tube(p, (90, 90, 98), [(0, 0.8), (0, 4.2)], 0.16, lo=0.45, hi=1.1)
+    _tube(p, (90, 90, 98), [(0, 0.8), (0, 4.2)], 0.18, lo=0.45, hi=1.1)
     for i in range(6):
-        y = 3.2 + i * 0.16
-        _blob(p, m, [(0, y, 0.17, 0.065)], lo=0.45, hi=1.15, ol=0.015)
-    _slab(p, m, [(-0.7, 4.0), (0.7, 4.0), (0.55, 4.5), (-0.55, 4.5)], lo=0.45, hi=1.1)
+        y = 3.12 + i * 0.16
+        _blob(p, m, [(0, y, 0.2, 0.07)], lo=0.4, hi=1.15, ol=0.015)
+    _stroke(p, (130, 26, 24), [(-0.22, 3.0), (-0.34, 3.4), (-0.18, 3.85)], 0.035)
+    _stroke(p, (30, 30, 36), [(0.2, 3.02), (0.32, 3.45), (0.2, 3.85)], 0.035)
+    _stroke(p, (50, 76, 150), [(0.1, 3.05), (0.16, 3.55)], 0.03)
+    _slab(p, m, [(-0.78, 3.98), (0.78, 3.98), (0.6, 4.52), (-0.6, 4.52)], lo=0.42, hi=1.1)
     for sx in (-1, 1):
-        p.circle((40, 40, 46), sx * 0.42, 4.3, 0.07)
-    # chest frame
-    chest = [(-0.95, 1.65), (0.95, 1.65), (0.82, 2.65), (0.45, 3.05), (-0.45, 3.05), (-0.82, 2.65)]
-    _slab(p, m, chest, lo=0.45, hi=1.12)
-    for i, y in enumerate((2.0, 2.35, 2.7)):
-        hw = 0.62 - i * 0.12
-        p.poly((20, 18, 20), [(-hw, y - 0.08), (hw, y - 0.08), (hw - 0.05, y + 0.08), (-hw + 0.05, y + 0.08)])
-    _stroke(p, (150, 30, 30), [(-0.3, 2.9), (-0.38, 3.3), (-0.2, 3.7)], 0.035)
-    _stroke(p, (30, 30, 36), [(0.25, 2.95), (0.35, 3.4), (0.22, 3.8)], 0.035)
-    _stroke(p, (60, 90, 170), [(0.1, 3.0), (0.16, 3.5)], 0.03)
-    _tube(p, m, [(-1.2, 1.72), (1.2, 1.72)], 0.15, lo=0.45, hi=1.15)
+        p.circle((40, 40, 46), sx * 0.44, 4.3, 0.07)
+    _endo_chest(p, m)
+    _tube(p, m, [(-1.22, 1.72), (1.22, 1.72)], 0.18, lo=0.42, hi=1.15)
     # arms
     for sx in (-1, 1):
-        sh, el, wr = (sx * 1.25, 1.75), (sx * 1.5, 2.95), (sx * 1.45, 3.85)
-        _tube(p, m, [sh, el, wr], 0.12, lo=0.45, hi=1.15)
-        _tube(p, (80, 80, 88), [(sh[0] + sx * 0.09, sh[1] + 0.15), (el[0] + sx * 0.09, el[1] - 0.15)], 0.05,
+        sh, el, wr = (sx * 1.26, 1.75), (sx * 1.52, 2.95), (sx * 1.46, 3.85)
+        _tube(p, m, [sh, el], 0.16, lo=0.42, hi=1.15)
+        _tube(p, m, [el, wr], 0.14, lo=0.42, hi=1.15)
+        _tube(p, (84, 84, 92), [(sh[0] + sx * 0.12, sh[1] + 0.18), (el[0] + sx * 0.12, el[1] - 0.16)], 0.06,
               lo=0.5, hi=1.1, ol=0.012)
-        for j in (sh, el, wr):
-            _blob(p, m, [(j[0], j[1], 0.13, 0.13)], lo=0.4, hi=1.2, ol=0.02)
+        _tube(p, (84, 84, 92), [(el[0] - sx * 0.1, el[1] + 0.16), (wr[0] - sx * 0.1, wr[1] - 0.14)], 0.05,
+              lo=0.5, hi=1.1, ol=0.012)
+        for j, r in ((sh, 0.17), (el, 0.14), (wr, 0.1)):
+            _blob(p, m, [(j[0], j[1], r, r)], lo=0.35, hi=1.2, ol=0.02)
         hp = p.sub(wr[0], wr[1], rot=_limb_rot(el, wr))
-        _slab(hp, m, [(-0.16, 0.08), (0.16, 0.08), (0.18, 0.32), (-0.18, 0.32)], lo=0.45, hi=1.1, ol=0.02)
-        for fx in (-0.13, -0.045, 0.045, 0.13):
-            _tube(hp, m, [(fx, 0.32), (fx * 1.1, 0.5), (fx * 1.05, 0.64)], 0.055, lo=0.45, hi=1.1, ol=0.015)
-        _tube(hp, m, [(-sx * 0.17, 0.15), (-sx * 0.3, 0.38)], 0.06, lo=0.45, hi=1.1, ol=0.015)
+        _slab(hp, m, [(-0.17, 0.08), (0.17, 0.08), (0.19, 0.34), (-0.19, 0.34)], lo=0.42, hi=1.1, ol=0.02)
+        for fx in (-0.135, -0.045, 0.045, 0.135):
+            _tube(hp, m, [(fx, 0.34), (fx * 1.1, 0.52), (fx * 1.05, 0.68)], 0.06, lo=0.42, hi=1.1, ol=0.015)
+        _tube(hp, m, [(-sx * 0.18, 0.15), (-sx * 0.32, 0.4)], 0.065, lo=0.42, hi=1.1, ol=0.015)
     # neck
-    _tube(p, m, [(0, 0.75), (0, 1.7)], 0.14, lo=0.45, hi=1.15)
+    _tube(p, m, [(0, 0.75), (0, 1.7)], 0.15, lo=0.42, hi=1.15)
     for k, c in enumerate(((150, 30, 30), (30, 30, 36), (60, 90, 170))):
         x = -0.12 + k * 0.12
         _stroke(p, c, [(x, 0.85), (x * 1.6, 1.25), (x, 1.6)], 0.03)
@@ -1146,11 +1314,10 @@ def _bust(p, pal, name):
     if name == "Endo":
         m = fur
         _tube(p, m, [(0, 0.75), (0, 2.4)], 0.16, lo=0.45, hi=1.15)
-        _tube(p, m, [(-1.3, 1.75), (1.3, 1.75)], 0.15, lo=0.45, hi=1.15)
-        chest = [(-0.95, 1.65), (0.95, 1.65), (0.9, 2.4), (-0.9, 2.4)]
-        _slab(p, m, chest, lo=0.45, hi=1.12)
+        _endo_chest(p, m)
+        _tube(p, m, [(-1.3, 1.72), (1.3, 1.72)], 0.18, lo=0.42, hi=1.15)
         for sx in (-1, 1):
-            _blob(p, m, [(sx * 1.25, 1.75, 0.14, 0.14)], lo=0.4, hi=1.2, ol=0.02)
+            _blob(p, m, [(sx * 1.26, 1.75, 0.17, 0.17)], lo=0.35, hi=1.2, ol=0.02)
         for k, c in enumerate(((150, 30, 30), (30, 30, 36), (60, 90, 170))):
             x = -0.12 + k * 0.12
             _stroke(p, c, [(x, 0.85), (x * 1.6, 1.25), (x, 1.6)], 0.03)
@@ -1158,9 +1325,9 @@ def _bust(p, pal, name):
     _blob(p, shade(fur, 0.45), [(0, 1.2, 0.38, 0.3)], lo=0.4, hi=0.9)
     _blob(p, fur, [(0, 2.25, 1.42, 0.78)], lo=0.55, hi=1.08)
     if name == "Chica":
-        _blob(p, (238, 234, 222), [(0, 2.3, 0.82, 0.72)], lo=0.6, hi=1.02, ol=0.03, olc=(80, 76, 70))
+        _bib(p, 0, 2.4)
     elif name == "Foxy":
-        _tear(p, 0.5, 1.85, 0.25, 0.22, _rng("Foxy", "bt"), shade(fur, 1.25))
+        _tear(p, 0.5, 1.85, 0.25, 0.22, _rng("Foxy", "bt"), lerp_color(fur, (226, 190, 150), 0.45))
     else:
         _bowtie(p, 0, 1.4, 1.0, pal["tie"])
 
@@ -1236,7 +1403,7 @@ def draw_character(pen, name, mouth=0.0, eyes="normal", look=(0.0, 0.0), body=Tr
     pal = _PAL.get(name, _PAL["Freddy"])
     head = _HEADS.get(name, _head_bear)
     mouth = clamp(float(mouth), 0.0, 1.0)
-    if eyes not in ("normal", "glow", "pinpoint", "none"):
+    if eyes not in ("normal", "glow", "pinpoint", "none", "human"):
         eyes = "normal"
     tilt = 0.0
     if name == "Foxy" and pose == "run":

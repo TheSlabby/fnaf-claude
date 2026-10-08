@@ -86,8 +86,9 @@ FOXY_RUN_TIME = 1.7
 # him), and how long you have to lift the monitor once he sits in the office.
 GOLDEN_CHANCE = 0.004
 GOLDEN_TIME = 5.0
-# Rare "IT'S ME" / face-flash hallucinations, per second, from night 2.
-HALLUCINATION_CHANCE = 1 / 600.0
+# Rare "IT'S ME" / face-flash hallucinations: chance per second, from night 2
+# (about one every other night).
+HALLUCINATION_CHANCE = 1 / 1000.0
 
 
 def roll(st, ai):
@@ -469,7 +470,8 @@ class NightState:
         if self.hallucination_timer <= 0:
             self.hallucination_timer += 1.0
             if self.night >= 2 and self.rng.random() < HALLUCINATION_CHANCE:
-                self.emit("hallucination", kind=self.rng.choice(["its_me", "faces"]))
+                kind = "its_me" if self.cams_up else self.rng.choice(["its_me", "faces"])
+                self.emit("hallucination", kind=kind, cams=self.cams_up)
 
     def _start_power_out(self):
         self.power = 0.0
