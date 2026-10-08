@@ -542,8 +542,8 @@ class NightScene(Scene):
         # Door lights.
         any_light = st.lights["L"] or st.lights["R"]
         self.flicker = any_light and random.random() < (0.12 if (st.at_door("L") or st.at_door("R")) else 0.04)
-        if any_light and not self.flicker:
-            self.sounds.loop("buzz", "buzz", 0.45)
+        if any_light:
+            self.sounds.loop("buzz", "buzz", 0.0 if self.flicker else 0.45)
         else:
             self.sounds.stop("buzz")
         for side in "LR":

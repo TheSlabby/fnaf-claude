@@ -2,13 +2,20 @@
 
 import json
 import os
+import sys
 
 import pygame
 
 from .settings import FPS, SCREEN_H, SCREEN_W, TITLE
 from .util import make_noise_frames, make_scanlines, make_vignette
 
-SAVE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "save.json")
+if getattr(sys, "frozen", False):
+    # Packaged with PyInstaller: keep the save next to the executable, not in
+    # the temporary folder the bundle is unpacked into.
+    _GAME_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    _GAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SAVE_PATH = os.path.join(_GAME_DIR, "save.json")
 
 
 class Assets:

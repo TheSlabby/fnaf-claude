@@ -28,6 +28,21 @@ Useful flags:
 | `--fullscreen` | Start fullscreen (F11 toggles at any time) |
 | `--mute` | No sound |
 
+### Sending it to a friend
+
+The easiest way: zip the folder and have them run the same two commands above.
+
+If they don't have Python, build a standalone app **on the same OS they use**
+(PyInstaller can't cross-compile, so build a Windows `.exe` on Windows):
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --windowed --name FNAF main.py
+```
+
+Send them `dist/FNAF.exe` (or `dist/FNAF` on macOS/Linux). Their saves go in a
+`save.json` next to the executable.
+
 ## How to play
 
 Survive from 12 AM to 6 AM (about 7.5 real minutes per night) without letting
