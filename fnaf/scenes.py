@@ -1,0 +1,1046 @@
+"""Game screens: loading, menu, the night itself, 6 AM, game over, extras."""
+
+import math
+import random
+
+import pygame
+
+from . import hud
+from .logic import NightState
+from .settings import (CAM_ORDER, CAM_PAN_MAX, CHARACTERS, OFFICE_SCROLL_MAX,
+                       SCREEN_H, SCREEN_W)
+from .util import add_glows, draw_text, font
+
+ORDINALS = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th", 6: "6th", 7: "7th"}
+
+# The phone guy's messages (subtitles). Written for this remake.
+PHONE_CALLS = {
+    1: [
+        "Hello? Hello, hello! Uh, welcome to your first night shift.",
+        "I'm supposed to walk you through a couple of things. Won't take long.",
+        "The animatronic characters get a little... free-roaming at night.",
+        "Something about their servos locking up if they stand still too long.",
+        "Problem is, after hours they don't recognise you as a person.",
+        "They'll assume you're an empty costume and try to, uh, help you into one.",
+        "Which would hurt. A lot. Anyway!",
+        "Watch them on the cameras - the bar at the bottom of your screen.",
+        "If one shows up at your door, shut it. The door lights let you peek.",
+        "But doors, lights and cameras all eat power, and power is limited.",
+        "So, uh, don't waste it. Okay! Make it to six. Talk to you tomorrow.",
+    ],
+    2: [
+        "Hey, you made it! Knew you would. Mostly.",
+        "Heads up: Bonnie and Chica get a lot more active from here on.",
+        "They like to stand right outside your doors, where the cameras can't see.",
+        "If you hear footsteps, check your door lights.",
+        "Also - keep an eye on Pirate Cove. Foxy gets restless when nobody watches.",
+        "If he leaves the cove, close that left door. Fast.",
+    ],
+    3: [
+        "Night three! You're basically a veteran at this point.",
+        "Freddy himself starts moving tonight. He likes the dark.",
+        "He won't move while you're looking right at him on the camera.",
+        "And you'll hear him laugh when he does move. Check the east hall.",
+        "Okay. I'll let you get to it.",
+    ],
+    4: [
+        "Hey, hey! Hey - if you're hearing this... I had a rough night.",
+        "I'm kind of glad I recorded this ahead of time, actually.",
+        "Could you do me a favour? Maybe check inside those suits sometime?",
+        "I'll try to hold out until someone... wait. Is that the door?",
+        "*knocking* ... *a music box starts playing*",
+        "Oh no-  *static*",
+    ],
+    5: [
+        "*garbled, reversed voices*",
+        "*a low, mechanical moan*",
+        "*static* ...IT'S ME... *static*",
+    ],
+}
+
+
+def _ordinal(n):
+    return ORDINALS.get(n, "%dth" % n)
+
+
+class Scene:
+    def __init__(self, game):
+        self.game = game
+        self.assets = game.assets
+        self.sounds = game.assets.sounds
+
+    def handle(self, event):
+        pass
+
+    def update(self, dt):
+        pass
+
+    def draw(self, screen):
+        pass
+
+    def static(self, screen, alpha, t=None):
+        frames = self.assets.noise
+        if not frames or alpha <= 0:
+            return
+        f = frames[random.randrange(len(frames))]
+        f.set_alpha(int(max(0, min(255, alpha))))
+        screen.blit(f, (0, 0))
+
+
+# --------------------------------------------------------------------------
+# Loading
+# --------------------------------------------------------------------------
+
+class LoadingScene(Scene):
+    def __init__(self, game, after):
+        super().__init__(game)
+        self.after = after
+        self.gen = self.assets.build()
+        self.progress = 0.0
+        self.label = "Loading"
+
+    def update(self, dt):
+        start = pygame.time.get_ticks()
+        while pygame.time.get_ticks() - start < 30:
+            try:
+                self.progress, self.label = next(self.gen)
+            except StopIteration:
+                self.game.change(self.after())
+                return
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        w = 520
+        x, y = (SCREEN_W - w) // 2, SCREEN_H // 2 + 30
+        draw_text(screen, "Five Nights at Freddy's", (SCREEN_W // 2, y - 90), 54, (230, 230, 230),
+                  anchor="center", bold=True)
+        pygame.draw.rect(screen, (90, 90, 90), (x, y, w, 18), 2)
+        pygame.draw.rect(screen, (220, 220, 220), (x + 4, y + 4, int((w - 8) * self.progress), 10))
+        draw_text(screen, self.label + "...", (SCREEN_W // 2, y + 46), 24, (150, 150, 150), anchor="center")
+
+
+# --------------------------------------------------------------------------
+# Menu
+# --------------------------------------------------------------------------
+
+class MenuScene(Scene):
+    def __init__(self, game):
+        super().__init__(game)
+        self.t = 0.0
+        self.sel = 0
+        self.glitch = 0.0
+        self.glitch_face = 0
+        self.next_glitch = random.uniform(1.0, 4.0)
+        self.scan_y = 0.0
+        self.sounds.stop_all()
+        self.sounds.loop("music", "menu", 0.6)
+        self.sounds.loop("static", "static", 0.08)
+        self.items = []
+        self.rebuild()
+
+    def rebuild(self):
+        save = self.game.save
+        self.items = [("New Game", "new")]
+        self.items.append(("Continue", "continue"))
+        if save.get("beat5"):
+            self.items.append(("6th Night", "night6"))
+        if save.get("beat6"):
+            self.items.append(("Custom Night", "custom"))
+        self.items.append(("Quit", "quit"))
+        self.rects = []
+
+    def activate(self, action):
+        g = self.game
+        self.sounds.play("blip", 0.6)
+        if action == "new":
+            g.save["night"] = 1
+            g.write_save()
+            g.change(NewspaperScene(g))
+        elif action == "continue":
+            g.change(NightIntroScene(g, g.save.get("night", 1)))
+        elif action == "night6":
+            g.change(NightIntroScene(g, 6))
+        elif action == "custom":
+            g.change(CustomNightScene(g))
+        elif action == "quit":
+            g.running = False
+
+    def handle(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key in (pygame.K_UP, pygame.K_w):
+                self.sel = (self.sel - 1) % len(self.items)
+            elif event.key in (pygame.K_DOWN, pygame.K_s):
+                self.sel = (self.sel + 1) % len(self.items)
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP_ENTER):
+                self.activate(self.items[self.sel][1])
+            elif event.key == pygame.K_ESCAPE:
+                self.game.running = False
+        elif event.type == pygame.MOUSEMOTION:
+            for i, r in enumerate(self.rects):
+                if r.collidepoint(event.pos):
+                    self.sel = i
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for i, r in enumerate(self.rects):
+                if r.collidepoint(event.pos):
+                    self.activate(self.items[i][1])
+
+    def update(self, dt):
+        self.t += dt
+        self.scan_y = (self.scan_y + dt * 140) % (SCREEN_H + 200)
+        self.next_glitch -= dt
+        if self.glitch > 0:
+            self.glitch -= dt
+        elif self.next_glitch <= 0:
+            self.glitch = random.uniform(0.06, 0.2)
+            self.glitch_face = random.randrange(1, len(self.assets.menu_faces))
+            self.next_glitch = random.uniform(1.5, 5.0)
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        faces = self.assets.menu_faces
+        if faces:
+            face = faces[self.glitch_face if self.glitch > 0 else 0]
+            jitter = (random.randint(-6, 6), random.randint(-3, 3)) if self.glitch > 0 else (0, 0)
+            flick = 0.55 + 0.25 * math.sin(self.t * 1.3) + random.uniform(-0.08, 0.08)
+            img = face.surface.copy()
+            k = int(255 * max(0.2, min(1.0, flick)))
+            img.fill((k, k, k), special_flags=pygame.BLEND_RGB_MULT)
+            x = SCREEN_W - 380 - face.anchor[0] + jitter[0]
+            y = SCREEN_H // 2 - 10 - face.anchor[1] + jitter[1]
+            screen.blit(img, (x, y))
+            if self.glitch > 0:
+                add_glows(screen, face.glows, 1.0, (x, y))
+        self.static(screen, 46 + 30 * math.sin(self.t * 0.7) + (90 if self.glitch > 0 else 0))
+        # Rolling scan band.
+        band = pygame.Surface((SCREEN_W, 90), pygame.SRCALPHA)
+        band.fill((255, 255, 255, 10))
+        screen.blit(band, (0, int(self.scan_y) - 150))
+        screen.blit(self.assets.scanlines, (0, 0))
+
+        y = 70
+        for word in ("Five", "Nights", "at", "Freddy's"):
+            draw_text(screen, word, (90, y), 84, (238, 238, 238), bold=True)
+            y += 66
+        stars = self.game.save.get("stars", 0)
+        for i in range(stars):
+            _star(screen, 112 + i * 56, y + 30, 22)
+
+        self.rects = []
+        y = 420
+        for i, (label, action) in enumerate(self.items):
+            r = draw_text(screen, label, (130, y), 44, (240, 240, 240), bold=True)
+            if action == "continue":
+                draw_text(screen, "Night %d" % self.game.save.get("night", 1), (r.right + 18, y + 12), 26,
+                          (190, 190, 190))
+            if i == self.sel:
+                draw_text(screen, ">>", (80, y), 44, (240, 240, 240), bold=True)
+            self.rects.append(r.inflate(260, 8).move(110, 0))
+            y += 50
+        draw_text(screen, "Fan remake made with pygame. Characters (c) Scott Cawthon.",
+                  (SCREEN_W - 18, SCREEN_H - 14), 20, (110, 110, 110), anchor="bottomright")
+
+
+def _star(screen, x, y, r):
+    pts = []
+    for i in range(10):
+        a = -math.pi / 2 + i * math.pi / 5
+        rr = r if i % 2 == 0 else r * 0.45
+        pts.append((x + math.cos(a) * rr, y + math.sin(a) * rr))
+    pygame.draw.polygon(screen, (240, 240, 240), pts)
+
+
+class NewspaperScene(Scene):
+    """The help-wanted ad shown when starting a new game."""
+
+    def __init__(self, game):
+        super().__init__(game)
+        self.t = 0.0
+
+    def handle(self, event):
+        if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN) and self.t > 0.5:
+            self.t = max(self.t, 6.5)
+
+    def update(self, dt):
+        self.t += dt
+        if self.t > 7.5:
+            self.game.change(NightIntroScene(self.game, 1))
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        paper = pygame.Rect(0, 0, 760, 560)
+        paper.center = (SCREEN_W // 2, SCREEN_H // 2)
+        pygame.draw.rect(screen, (196, 190, 170), paper)
+        pygame.draw.rect(screen, (120, 114, 96), paper, 4)
+        draw_text(screen, "HELP WANTED", (paper.centerx, paper.y + 60), 86, (30, 28, 24), anchor="center", bold=True)
+        pygame.draw.line(screen, (60, 56, 50), (paper.x + 40, paper.y + 110), (paper.right - 40, paper.y + 110), 3)
+        lines = [
+            "Freddy Fazbear's Pizza, a magical place for kids",
+            "and grown-ups alike, is looking for a",
+            "NIGHT SECURITY GUARD.",
+            "",
+            "Monitor the cameras, make sure nothing gets",
+            "damaged or stolen. Hours: 12 AM to 6 AM.",
+            "",
+            "$120 a week.  Start immediately.",
+            "Not responsible for injury or dismemberment.",
+        ]
+        y = paper.y + 150
+        for ln in lines:
+            draw_text(screen, ln, (paper.centerx, y), 32, (40, 36, 30), anchor="center", bold=ln.isupper())
+            y += 38
+        # A little Freddy face in the corner of the ad.
+        portrait = self.assets.portraits.get("Freddy")
+        if portrait:
+            img = portrait.surface.copy()
+            img.fill((200, 190, 160), special_flags=pygame.BLEND_RGB_MULT)
+            portrait_pos = (paper.right - 95, paper.bottom - 90)
+            screen.blit(img, (portrait_pos[0] - portrait.anchor[0], portrait_pos[1] - portrait.anchor[1]))
+        self.static(screen, 26)
+        if self.t > 6.5:
+            fade = 255 * min(1.0, (self.t - 6.5) / 1.0)
+        elif self.t < 0.8:
+            fade = 255 * (1 - self.t / 0.8)
+        else:
+            fade = 0
+        if fade > 0:
+            veil = pygame.Surface((SCREEN_W, SCREEN_H))
+            veil.set_alpha(int(fade))
+            screen.blit(veil, (0, 0))
+
+
+class NightIntroScene(Scene):
+    def __init__(self, game, night, ai_levels=None):
+        super().__init__(game)
+        self.night = night
+        self.ai_levels = ai_levels
+        self.t = 0.0
+        self.sounds.stop_all()
+        self.sounds.play("deep", 0.7)
+
+    def handle(self, event):
+        if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN) and self.t > 0.6:
+            self.t = max(self.t, 2.6)
+
+    def update(self, dt):
+        self.t += dt
+        if self.t >= 3.4:
+            self.game.change(NightScene(self.game, self.night, self.ai_levels))
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        a = 255
+        if self.t < 0.4:
+            a = int(255 * self.t / 0.4)
+        elif self.t > 2.6:
+            a = int(255 * max(0.0, 1 - (self.t - 2.6) / 0.8))
+        draw_text(screen, "12:00 AM", (SCREEN_W // 2, SCREEN_H // 2 - 34), 72, (240, 240, 240),
+                  anchor="center", bold=True, alpha=a)
+        label = "Custom Night" if self.night == 7 else _ordinal(self.night) + " Night"
+        draw_text(screen, label, (SCREEN_W // 2, SCREEN_H // 2 + 34), 52, (240, 240, 240),
+                  anchor="center", bold=True, alpha=a)
+        if self.t < 0.5:
+            self.static(screen, 200 * (1 - self.t / 0.5))
+
+
+# --------------------------------------------------------------------------
+# The night
+# --------------------------------------------------------------------------
+
+JUMPSCARE_TIME = 1.25
+
+
+class NightScene(Scene):
+    def __init__(self, game, night, ai_levels=None):
+        super().__init__(game)
+        self.night = night
+        self.st = NightState(night, ai_levels)
+        self.speed = game.args.speed if game.args else 1.0
+        self.t = 0.0
+        self.scroll = OFFICE_SCROLL_MAX / 2
+        self.cam_anim = 0.0      # monitor raise animation 0 (down) .. 1 (up)
+        self.cam_target = False
+        self.door_pos = {"L": 0.0, "R": 0.0}
+        self.pan = 0.0
+        self.pan_dir = 1
+        self.pan_hold = 1.0
+        self.glitch = 0.0
+        self.switch_static = 0.0
+        self.bar_armed = True
+        self.flicker = False
+        self.freddy_lit = False
+        self.blink_timer = 0.0
+        self.sting_seen = {"L": False, "R": False}
+        self.state = "play"
+        self.js_t = 0.0
+        self.paused = False
+        self.fade_in = 1.0
+        self.call = list(PHONE_CALLS.get(night, [])) if night <= 5 else []
+        self.call_t = -3.0
+        self.call_line = -1
+        self.call_line_t = 0.0
+        self.call_muted = False
+        self.mute_rect = pygame.Rect(30, 30, 150, 40)
+        self.sounds.stop_all()
+        self.sounds.loop("fan", "fan", 0.35)
+        self.sounds.loop("ambience", "ambience", 0.4)
+        if self.call:
+            self.sounds.play("ring", 0.6)
+
+    # -- input ---------------------------------------------------------------
+    def handle(self, event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE and self.state == "play":
+            self.paused = not self.paused
+            if self.paused:
+                self.sounds.pause()
+            else:
+                self.sounds.unpause()
+            return
+        if self.paused:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+                self.sounds.unpause()
+                self.game.change(MenuScene(self.game))
+            return
+        if self.state != "play":
+            return
+        st = self.st
+        if event.type == pygame.KEYDOWN:
+            k = event.key
+            if k in (pygame.K_SPACE, pygame.K_s, pygame.K_TAB):
+                self.toggle_cams()
+            elif k == pygame.K_q:
+                self.door("L")
+            elif k == pygame.K_e:
+                self.door("R")
+            elif k == pygame.K_a:
+                self.light("L")
+            elif k == pygame.K_d:
+                self.light("R")
+            elif k in (pygame.K_LEFT, pygame.K_RIGHT) and self.cam_target and self.cam_anim >= 1:
+                i = CAM_ORDER.index(st.cam) + (1 if k == pygame.K_RIGHT else -1)
+                self.switch_cam(CAM_ORDER[i % len(CAM_ORDER)])
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.call_line < len(self.call) and not self.call_muted and self.mute_rect.collidepoint(event.pos) \
+                    and self.call_t > -3:
+                self.call_muted = True
+                self.sounds.play("click", 0.6)
+                return
+            if self.cam_target and self.cam_anim >= 1:
+                for cam, r in hud.map_buttons().items():
+                    if r.collidepoint(event.pos):
+                        self.switch_cam(cam)
+                        return
+            elif not self.cam_target and self.cam_anim <= 0:
+                ox, oy = event.pos[0] + self.scroll, event.pos[1]
+                for (side, kind), r in self.office_mod.BUTTONS.items():
+                    if r.collidepoint(ox, oy):
+                        if kind == "door":
+                            self.door(side)
+                        else:
+                            self.light(side)
+                        return
+                if self.office_mod.NOSE_RECT.collidepoint(ox, oy):
+                    self.sounds.play("honk", 0.8)
+
+    @property
+    def office_mod(self):
+        return self.assets.office_mod
+
+    def door(self, side):
+        if self.cam_target or self.cam_anim > 0:
+            return
+        if self.st.toggle_door(side):
+            self.sounds.play("door", 0.8)
+        else:
+            self.sounds.play("error", 0.6)
+
+    def light(self, side):
+        if self.cam_target or self.cam_anim > 0:
+            return
+        if not self.st.toggle_light(side):
+            self.sounds.play("error", 0.6)
+        else:
+            self.sounds.play("click", 0.4)
+
+    def toggle_cams(self):
+        st = self.st
+        if st.power_out or self.state != "play":
+            return
+        self.cam_target = not self.cam_target
+        if self.cam_target:
+            self.sounds.play("cam_up", 0.6)
+        else:
+            self.sounds.play("cam_down", 0.6)
+            st.set_cams(False)
+
+    def switch_cam(self, cam):
+        if cam == self.st.cam:
+            return
+        self.st.set_cam(cam)
+        self.sounds.play("blip", 0.55)
+        self.switch_static = 0.22
+        self.pan = 0.0
+        self.pan_dir = 1
+        self.pan_hold = 0.8
+
+    # -- update --------------------------------------------------------------
+    def update(self, dt):
+        if self.paused:
+            return
+        self.t += dt
+        self.fade_in = max(0.0, self.fade_in - dt * 1.2)
+        st = self.st
+        if self.state == "jumpscare":
+            self.js_t += dt
+            limit = 2.4 if st.killer == "Golden" else JUMPSCARE_TIME
+            if self.js_t >= limit:
+                self.sounds.stop_all()
+                if st.killer == "Golden":
+                    self.game.change(CrashScene(self.game))
+                else:
+                    self.game.change(GameOverScene(self.game, self.night, st.killer))
+            return
+
+        self._update_input(dt)
+
+        st.update(dt * self.speed)
+        for name, data in st.pop_events():
+            self._on_event(name, data)
+        if self.state != "play":
+            return
+        if st.result == "win":
+            self.sounds.stop_all()
+            self.game.change(SixAMScene(self.game, self.night, self.st.custom and self.st))
+            return
+
+        # Monitor animation.
+        if st.power_out:
+            self.cam_target = False
+        target = 1.0 if self.cam_target else 0.0
+        if self.cam_anim != target:
+            step = dt / 0.26
+            self.cam_anim = min(target, self.cam_anim + step) if target > self.cam_anim else max(target, self.cam_anim - step)
+            if self.cam_anim >= 1.0 and self.cam_target:
+                st.set_cams(True)
+                self.switch_static = 0.25
+        for side in "LR":
+            goal = 1.0 if st.doors[side] else 0.0
+            p = self.door_pos[side]
+            self.door_pos[side] = min(goal, p + dt * 5.5) if goal > p else max(goal, p - dt * 5.5)
+
+        # Camera pan.
+        if self.pan_hold > 0:
+            self.pan_hold -= dt
+        else:
+            self.pan += self.pan_dir * dt * 38
+            if self.pan >= CAM_PAN_MAX or self.pan <= 0:
+                self.pan = max(0, min(CAM_PAN_MAX, self.pan))
+                self.pan_dir *= -1
+                self.pan_hold = 1.4
+        self.glitch = max(0.0, self.glitch - dt)
+        self.switch_static = max(0.0, self.switch_static - dt)
+
+        # Door lights.
+        any_light = st.lights["L"] or st.lights["R"]
+        self.flicker = any_light and random.random() < (0.12 if (st.at_door("L") or st.at_door("R")) else 0.04)
+        if any_light and not self.flicker:
+            self.sounds.loop("buzz", "buzz", 0.45)
+        else:
+            self.sounds.stop("buzz")
+        for side in "LR":
+            who = st.at_door(side)
+            if not who:
+                self.sting_seen[side] = False
+            elif st.lights[side] and not self.sting_seen[side]:
+                self.sting_seen[side] = True
+                self.sounds.play("sting", 0.9)
+
+        # Loops tied to the cameras.
+        if self.cam_anim > 0.5 and not st.power_out:
+            self.sounds.loop("static", "static", 0.5 if self.glitch > 0 else 0.16)
+        else:
+            self.sounds.stop("static")
+        if st.occupants("6") and not st.power_out:
+            vol = 0.8 if (st.cams_up and st.cam == "6") else 0.12
+            self.sounds.loop("kitchen", "kitchen", vol)
+        else:
+            self.sounds.stop("kitchen", 300)
+
+        # Power-out show: Freddy's face blinks to the music box.
+        if st.power_out and st.power_out["phase"] == "show":
+            self.blink_timer -= dt
+            if self.blink_timer <= 0:
+                self.freddy_lit = not self.freddy_lit
+                self.blink_timer = random.uniform(0.05, 0.35) if self.freddy_lit else random.uniform(0.05, 0.5)
+        else:
+            self.freddy_lit = False
+
+        # Phone call subtitles.
+        if self.call and not self.call_muted:
+            self.call_t += dt
+            if self.call_t >= 0:
+                if self.call_line < 0:
+                    self.call_line = 0
+                    self.call_line_t = 0.0
+                else:
+                    self.call_line_t += dt
+                    if self.call_line < len(self.call) and self.call_line_t > 1.6 + 0.055 * len(self.call[self.call_line]):
+                        self.call_line += 1
+                        self.call_line_t = 0.0
+
+    def _update_input(self, dt):
+        st = self.st
+        mx, my = pygame.mouse.get_pos()
+        if pygame.mouse.get_focused():
+            on_bar = hud.CAM_BAR.collidepoint(mx, my)
+            if on_bar and self.bar_armed and not st.power_out:
+                self.bar_armed = False
+                self.toggle_cams()
+            elif not on_bar:
+                self.bar_armed = True
+        if self.cam_target or self.cam_anim > 0:
+            return
+        speed = 0.0
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LEFT]:
+            speed = -1.0
+        elif keys[pygame.K_RIGHT]:
+            speed = 1.0
+        elif pygame.mouse.get_focused():
+            edge = SCREEN_W * 0.32
+            if mx < edge:
+                speed = -(edge - mx) / edge
+            elif mx > SCREEN_W - edge:
+                speed = (mx - (SCREEN_W - edge)) / edge
+        self.scroll = max(0.0, min(float(OFFICE_SCROLL_MAX), self.scroll + speed * 1000 * dt))
+
+    def _on_event(self, name, data):
+        st = self.st
+        if name == "move":
+            who, src, dst = data["who"], data["src"], data["dst"]
+            if who in ("Bonnie", "Chica") and st.cams_up and st.cam in (src, dst):
+                self.glitch = random.uniform(1.2, 2.6)
+                self.sounds.play("static_burst", 0.5)
+            if who in ("Bonnie", "Chica"):
+                if dst in ("LDOOR", "RDOOR"):
+                    self.sounds.play("footsteps", 0.8)
+                elif src in ("LDOOR", "RDOOR"):
+                    self.sounds.play("footsteps", 0.45)
+                elif dst in ("2A", "2B", "3", "4A", "4B"):
+                    self.sounds.play("footsteps", 0.25)
+        elif name == "laugh":
+            self.sounds.play("laugh", 0.7)
+        elif name == "enter_office":
+            self.sounds.play("groan", 0.25)
+        elif name == "foxy_run":
+            self.sounds.play("run", 0.9 if (st.cams_up and st.cam == "2A") else 0.6)
+        elif name == "foxy_bang":
+            self.sounds.play("bang", 0.9)
+        elif name == "golden":
+            self.sounds.play("deep", 0.6)
+        elif name == "power_out":
+            self.sounds.stop_all()
+            self.sounds.play("powerdown", 0.9)
+            self.cam_target = False
+            self.cam_anim = 0.0
+        elif name == "musicbox":
+            self.sounds.loop("musicbox", "musicbox", 0.7)
+        elif name == "blackout":
+            self.sounds.stop("musicbox")
+            self.sounds.play("deep", 0.5)
+        elif name == "kill":
+            self.start_jumpscare(data["who"])
+
+    def start_jumpscare(self, who):
+        self.state = "jumpscare"
+        self.js_t = 0.0
+        self.cam_target = False
+        self.cam_anim = 0.0
+        self.st.cams_up = False
+        self.sounds.stop_all()
+        self.sounds.play("scream_gf" if who == "Golden" else "scream", 1.0)
+
+    # -- draw ----------------------------------------------------------------
+    def draw(self, screen):
+        st = self.st
+        if self.state == "jumpscare":
+            self.draw_jumpscare(screen)
+            return
+
+        cams_visible = self.cam_anim >= 1.0
+        if not cams_visible:
+            self.draw_office(screen)
+            if self.cam_anim > 0:
+                # The monitor sliding up in front of the guard.
+                h = int(SCREEN_H * self.cam_anim)
+                tilt = int((1 - self.cam_anim) * 60)
+                pygame.draw.polygon(screen, (22, 22, 24), [(tilt, SCREEN_H - h), (SCREEN_W - tilt, SCREEN_H - h),
+                                                           (SCREEN_W, SCREEN_H), (0, SCREEN_H)])
+                pygame.draw.polygon(screen, (70, 70, 74), [(tilt, SCREEN_H - h), (SCREEN_W - tilt, SCREEN_H - h),
+                                                           (SCREEN_W, SCREEN_H), (0, SCREEN_H)], 6)
+        else:
+            self.draw_cams(screen)
+
+        if not (st.power_out and st.power_out["phase"] == "black"):
+            if not st.power_out:
+                hud.draw_clock(screen, st.hour_label, self.night)
+                hud.draw_power(screen, st.power, st.usage)
+                hud.draw_cam_bar(screen, hud.CAM_BAR.collidepoint(pygame.mouse.get_pos()))
+            else:
+                hud.draw_clock(screen, st.hour_label, self.night)
+        self.draw_call(screen)
+
+        if self.fade_in > 0:
+            veil = pygame.Surface((SCREEN_W, SCREEN_H))
+            veil.set_alpha(int(255 * self.fade_in))
+            screen.blit(veil, (0, 0))
+        if self.paused:
+            veil = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+            veil.fill((0, 0, 0, 170))
+            screen.blit(veil, (0, 0))
+            draw_text(screen, "PAUSED", (SCREEN_W // 2, SCREEN_H // 2 - 30), 80, (240, 240, 240), anchor="center",
+                      bold=True)
+            draw_text(screen, "Esc: resume     Q: quit to menu", (SCREEN_W // 2, SCREEN_H // 2 + 40), 30,
+                      (200, 200, 200), anchor="center")
+
+    def draw_office(self, screen):
+        st = self.st
+        phase = st.power_out["phase"] if st.power_out else None
+        self.assets.office.draw(
+            screen, int(self.scroll), t=self.t,
+            door_pos=self.door_pos,
+            door_closed=dict(st.doors),
+            lights=dict(st.lights),
+            at_door={"L": st.at_door("L"), "R": st.at_door("R")},
+            power_out=phase,
+            freddy_lit=self.freddy_lit,
+            golden=(st.golden == "office"),
+            flicker=self.flicker,
+        )
+        screen.blit(self.assets.vignette, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+
+    def draw_cams(self, screen):
+        st = self.st
+        cam = st.cam
+        if cam == "6" or self.glitch > 0:
+            screen.fill((0, 0, 0))
+        else:
+            occ = st.occupants(cam)
+            foxy_stage = st.foxy.stage if st.foxy.state == "cove" else 3
+            img = self.assets.feeds.get(cam, occ,
+                                        foxy_stage=foxy_stage if cam == "1C" else 0,
+                                        golden_poster=(cam == "2B" and st.golden == "poster"),
+                                        freddy_stare=(cam == "1A" and occ == frozenset(["Freddy"])))
+            screen.blit(img, (-int(self.pan), 0))
+            if cam == "2A" and st.foxy.state == "running":
+                self.assets.feeds.draw_foxy_run(screen, -int(self.pan), st.foxy.run_progress)
+        if self.glitch > 0:
+            self.static(screen, 235)
+        elif cam == "6":
+            self.static(screen, 70)
+            draw_text(screen, "-CAMERA DISABLED-", (SCREEN_W // 2 - 120, 220), 44, (235, 235, 235), anchor="center",
+                      bold=True)
+            draw_text(screen, "AUDIO ONLY", (SCREEN_W // 2 - 120, 268), 36, (235, 235, 235), anchor="center",
+                      bold=True)
+        else:
+            self.static(screen, 255 if self.switch_static > 0.1 else 110 if self.switch_static > 0 else
+                        random.randint(38, 70))
+        screen.blit(self.assets.scanlines, (0, 0))
+        hud.draw_cam_frame(screen, cam, self.t)
+        hud.draw_map(screen, cam, self.t)
+
+    def draw_call(self, screen):
+        if not self.call or self.call_muted or self.call_line >= len(self.call):
+            return
+        if self.call_t > -3:
+            r = self.mute_rect
+            pygame.draw.rect(screen, (30, 30, 30), r)
+            pygame.draw.rect(screen, (200, 200, 200), r, 2)
+            draw_text(screen, "MUTE CALL", r.center, 24, (230, 230, 230), anchor="center", bold=True)
+        if self.call_line >= 0:
+            line = self.call[self.call_line]
+            a = int(255 * min(1.0, self.call_line_t / 0.25))
+            draw_text(screen, line, (SCREEN_W // 2, 150), 28, (235, 235, 210), anchor="center",
+                      alpha=a, shadow=(0, 0, 0))
+
+    def draw_jumpscare(self, screen):
+        st = self.st
+        who = st.killer
+        t = self.js_t
+        if st.power_out:
+            screen.fill((0, 0, 0))
+        else:
+            self.draw_office(screen)
+            dark = pygame.Surface((SCREEN_W, SCREEN_H))
+            dark.fill((90, 80, 80))
+            screen.blit(dark, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        frames = self.assets.jumpscares.get(who)
+        if not frames:
+            return
+        frame = frames[int(t * 16) % len(frames)] if who != "Golden" else frames[0]
+        if who == "Golden":
+            scale = 1.0
+            shake = (0, 0)
+        elif who == "Foxy":
+            k = min(1.0, t / 0.22)
+            scale = 0.35 + 0.8 * k
+            shake = (random.randint(-14, 14), random.randint(-10, 10)) if k >= 1 else (0, 0)
+        else:
+            scale = min(1.12, 0.85 + t * 2.2)
+            shake = (random.randint(-18, 18), random.randint(-12, 12))
+        img = frame.surface
+        if scale != 1.0:
+            img = pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
+        ax, ay = frame.anchor[0] * scale, frame.anchor[1] * scale
+        cx = SCREEN_W // 2
+        if who == "Foxy":
+            cx = int(-200 + (SCREEN_W // 2 + 200) * min(1.0, t / 0.22))
+        cy = int(SCREEN_H * 0.47)
+        screen.blit(img, (int(cx - ax + shake[0]), int(cy - ay + shake[1])))
+        if who == "Golden":
+            self.static(screen, 40 + 40 * math.sin(t * 30))
+        elif random.random() < 0.25:
+            self.static(screen, 50)
+
+
+# --------------------------------------------------------------------------
+# After the night
+# --------------------------------------------------------------------------
+
+class SixAMScene(Scene):
+    def __init__(self, game, night, custom_state=None):
+        super().__init__(game)
+        self.night = night
+        self.custom_state = custom_state
+        self.t = 0.0
+        self.sounds.stop_all()
+        self.sounds.play("chimes", 0.9)
+        self._record()
+
+    def _record(self):
+        g = self.game
+        s = g.save
+        if self.night <= 4:
+            s["night"] = max(s.get("night", 1), self.night + 1)
+        elif self.night == 5:
+            s["beat5"] = True
+            s["stars"] = max(s.get("stars", 0), 1)
+        elif self.night == 6:
+            s["beat6"] = True
+            s["stars"] = max(s.get("stars", 0), 2)
+        elif self.night == 7 and self.custom_state:
+            levels = tuple(self.custom_state.roster[n].ai for n in CHARACTERS)
+            if all(lv >= 20 for lv in levels):
+                s["stars"] = 3
+        g.write_save()
+
+    def handle(self, event):
+        if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN) and self.t > 2.5:
+            self.t = max(self.t, 7.0)
+
+    def update(self, dt):
+        self.t += dt
+        if self.t >= 7.6:
+            g = self.game
+            if self.night <= 4:
+                g.change(NightIntroScene(g, self.night + 1))
+            elif self.night == 5:
+                g.change(EndingScene(g, "week"))
+            elif self.night == 6:
+                g.change(EndingScene(g, "overtime"))
+            else:
+                levels = tuple(self.custom_state.roster[n].ai for n in CHARACTERS) if self.custom_state else ()
+                g.change(EndingScene(g, "fired" if levels and min(levels) >= 20 else "custom"))
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        cx, cy = SCREEN_W // 2, SCREEN_H // 2
+        roll = max(0.0, min(1.0, (self.t - 0.8) / 1.6))
+        roll = roll * roll * (3 - 2 * roll)
+        f = font(120, bold=True)
+        dw, dh = f.size("6")
+        aw = f.size("AM")[0]
+        left = cx - (dw + 30 + aw) // 2
+        clip = pygame.Rect(left - 10, cy - dh // 2, dw + 20, dh)
+        screen.set_clip(clip)
+        draw_text(screen, "5", (left + dw // 2, cy - roll * dh), 120, (245, 245, 245), anchor="center", bold=True)
+        draw_text(screen, "6", (left + dw // 2, cy + dh - roll * dh), 120, (245, 245, 245), anchor="center",
+                  bold=True)
+        screen.set_clip(None)
+        draw_text(screen, "AM", (left + dw + 30, cy), 120, (245, 245, 245), anchor="midleft", bold=True)
+        if self.t < 0.4:
+            self.static(screen, 255 * (1 - self.t / 0.4))
+        if self.t > 6.6:
+            veil = pygame.Surface((SCREEN_W, SCREEN_H))
+            veil.set_alpha(int(255 * min(1.0, (self.t - 6.6) / 1.0)))
+            screen.blit(veil, (0, 0))
+
+
+class GameOverScene(Scene):
+    def __init__(self, game, night, killer):
+        super().__init__(game)
+        self.night = night
+        self.killer = killer
+        self.t = 0.0
+        self.sounds.stop_all()
+        self.sounds.loop("static", "static", 0.6)
+
+    def handle(self, event):
+        if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN) and self.t > 3.0:
+            self.t = 99
+
+    def update(self, dt):
+        self.t += dt
+        if self.t > 2.2:
+            self.sounds.set_volume("static", max(0.0, 0.6 - (self.t - 2.2)))
+        if self.t >= 9.0:
+            self.game.change(MenuScene(self.game))
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        if self.t < 2.2:
+            self.static(screen, 255)
+            return
+        # The guard, stuffed into a suit. We just see the suit's eyes in a dark room.
+        a = int(255 * min(1.0, (self.t - 2.2) / 0.8))
+        portrait = self.assets.portraits.get("Freddy_dead")
+        if portrait:
+            img = portrait.surface.copy()
+            img.set_alpha(a)
+            screen.blit(img, (SCREEN_W // 2 - portrait.anchor[0], SCREEN_H // 2 - 40 - portrait.anchor[1]))
+        draw_text(screen, "GAME OVER", (SCREEN_W - 60, SCREEN_H - 60), 76, (230, 230, 230), anchor="bottomright",
+                  bold=True, alpha=a)
+        self.static(screen, 60 if self.t < 3 else 30)
+
+
+class CrashScene(Scene):
+    """Golden Freddy 'crashes' the game back to the menu."""
+
+    def __init__(self, game):
+        super().__init__(game)
+        self.t = 0.0
+
+    def update(self, dt):
+        self.t += dt
+        if self.t > 1.6:
+            self.game.change(MenuScene(self.game))
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        if self.t < 0.15:
+            self.static(screen, 255)
+
+
+class EndingScene(Scene):
+    TEXT = {
+        "week": ("Congratulations!", ["You survived the week at Freddy Fazbear's Pizza.",
+                                      "", "PAY TO THE ORDER OF:  Night Security", "One hundred twenty dollars and 50/100",
+                                      "", "The 6th Night is now unlocked."]),
+        "overtime": ("Overtime!", ["You worked an extra night. Your dedication is noted.",
+                                   "", "PAY TO THE ORDER OF:  Night Security", "Fifty cents (overtime)",
+                                   "", "The Custom Night is now unlocked."]),
+        "fired": ("NOTICE OF TERMINATION", ["Reason: tampering with the animatronics,",
+                                            "general unprofessionalism, and odor.", "",
+                                            "...but you beat 4/20 mode. Respect."]),
+        "custom": ("Shift complete", ["You survived the custom night.", "",
+                                      "Try all four at level 20 for the final star."]),
+    }
+
+    def __init__(self, game, kind):
+        super().__init__(game)
+        self.kind = kind
+        self.t = 0.0
+        self.sounds.loop("music", "menu", 0.4)
+
+    def handle(self, event):
+        if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN) and self.t > 1.5:
+            self.game.change(MenuScene(self.game))
+
+    def update(self, dt):
+        self.t += dt
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        title, lines = self.TEXT[self.kind]
+        card = pygame.Rect(0, 0, 820, 440)
+        card.center = (SCREEN_W // 2, SCREEN_H // 2)
+        pink = self.kind == "fired"
+        pygame.draw.rect(screen, (230, 200, 210) if pink else (200, 214, 196), card)
+        pygame.draw.rect(screen, (90, 90, 90), card, 4)
+        draw_text(screen, title, (card.centerx, card.y + 60), 60, (30, 30, 30), anchor="center", bold=True)
+        y = card.y + 140
+        for ln in lines:
+            draw_text(screen, ln, (card.centerx, y), 32, (40, 40, 40), anchor="center")
+            y += 40
+        if self.t > 1.5:
+            draw_text(screen, "click to continue", (SCREEN_W // 2, SCREEN_H - 40), 24, (140, 140, 140), anchor="center")
+
+
+class CustomNightScene(Scene):
+    PRESETS = [("All 0", (0, 0, 0, 0)), ("Night 6", (4, 10, 12, 16)), ("Golden Freddy", (1, 9, 8, 7)),
+               ("4/20 Mode", (20, 20, 20, 20))]
+
+    def __init__(self, game):
+        super().__init__(game)
+        self.levels = list(game.save.get("custom", [1, 3, 3, 1]))
+        self.rects = {}
+
+    def handle(self, event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.game.change(MenuScene(self.game))
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for key, r in self.rects.items():
+                if not r.collidepoint(event.pos):
+                    continue
+                self.sounds.play("blip", 0.5)
+                if key == "ready":
+                    self.game.save["custom"] = self.levels
+                    self.game.write_save()
+                    self.game.change(NightIntroScene(self.game, 7, tuple(self.levels)))
+                elif key == "back":
+                    self.game.change(MenuScene(self.game))
+                elif key[0] == "preset":
+                    self.levels = list(self.PRESETS[key[1]][1])
+                else:
+                    i, d = key
+                    self.levels[i] = max(0, min(20, self.levels[i] + d))
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        draw_text(screen, "Customize Night", (SCREEN_W // 2, 60), 60, (240, 240, 240), anchor="center", bold=True)
+        self.rects = {}
+        for i, name in enumerate(CHARACTERS):
+            x = 175 + i * 310
+            box = pygame.Rect(0, 0, 230, 250)
+            box.midtop = (x, 120)
+            pygame.draw.rect(screen, (18, 18, 20), box)
+            pygame.draw.rect(screen, (200, 200, 200), box, 2)
+            portrait = self.assets.portraits.get(name)
+            if portrait:
+                screen.set_clip(box.inflate(-4, -4))
+                portrait.blit(screen, (box.centerx, box.y + 120))
+                screen.set_clip(None)
+            draw_text(screen, name, (x, box.bottom + 26), 36, (240, 240, 240), anchor="center", bold=True)
+            draw_text(screen, "A.I. Level", (x, box.bottom + 66), 26, (190, 190, 190), anchor="center")
+            draw_text(screen, str(self.levels[i]), (x, box.bottom + 112), 56, (240, 240, 240), anchor="center",
+                      bold=True)
+            for d, label in ((-1, "<"), (1, ">")):
+                r = pygame.Rect(0, 0, 50, 50)
+                r.center = (x + d * 80, box.bottom + 112)
+                pygame.draw.rect(screen, (60, 60, 60), r)
+                pygame.draw.rect(screen, (220, 220, 220), r, 2)
+                draw_text(screen, label, r.center, 40, (240, 240, 240), anchor="center", bold=True)
+                self.rects[(i, d)] = r
+        for j, (label, _) in enumerate(self.PRESETS):
+            r = pygame.Rect(0, 0, 200, 40)
+            r.center = (SCREEN_W // 2 + (j - 1.5) * 220, SCREEN_H - 120)
+            pygame.draw.rect(screen, (40, 40, 40), r)
+            pygame.draw.rect(screen, (170, 170, 170), r, 2)
+            draw_text(screen, label, r.center, 26, (220, 220, 220), anchor="center")
+            self.rects[("preset", j)] = r
+        for key, label, cx in (("back", "BACK", 140), ("ready", "READY", SCREEN_W - 140)):
+            r = pygame.Rect(0, 0, 180, 54)
+            r.center = (cx, SCREEN_H - 50)
+            pygame.draw.rect(screen, (70, 20, 20) if key == "back" else (20, 70, 20), r)
+            pygame.draw.rect(screen, (230, 230, 230), r, 2)
+            draw_text(screen, label, r.center, 36, (240, 240, 240), anchor="center", bold=True)
+            self.rects[key] = r
