@@ -45,7 +45,7 @@ Send them `dist/FNAF.exe` (or `dist/FNAF` on macOS/Linux). Their saves go in a
 
 ## How to play
 
-Survive from 12 AM to 6 AM (about 7.5 real minutes per night) without letting
+Survive from 12 AM to 6 AM (about 9 real minutes per night, like the original) without letting
 the animatronics reach you. Doors, lights and the camera all use power, and
 when the power runs out the doors stop working...
 
@@ -64,10 +64,12 @@ Tips:
   hall. They stand right outside your doors, where no camera can see them,
   so check the door lights, especially when you hear footsteps.
 - If your door buttons suddenly stop working, someone is already inside.
+  Whatever you do, don't touch the monitor.
 - **Foxy** creeps out of Pirate Cove (CAM 1C) when you don't check the cameras.
   If the cove is empty, close the left door, fast.
-- **Freddy** moves from night 3 on, mostly in the dark, and laughs when he does.
-  He can't move while you're watching him on camera.
+- **Freddy** moves from night 3 on, only while your monitor is down, and laughs
+  when he does. Watching him on camera stalls him. Once he's in the east hall
+  corner (CAM 4B), close the right door before you look at any other camera.
 - Glance at CAM 2B now and then. Or don't.
 
 Beat night 5 to unlock night 6, and night 6 to unlock the custom night. Each

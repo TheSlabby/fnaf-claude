@@ -36,6 +36,8 @@ PHONE_CALLS = {
         "If you hear footsteps, check your door lights.",
         "Also - keep an eye on Pirate Cove. Foxy gets restless when nobody watches.",
         "If he leaves the cove, close that left door. Fast.",
+        "Oh, and if your door buttons ever stop working... someone's in the room with you.",
+        "Don't touch the monitor. Just... sit very still until six.",
     ],
     3: [
         "Night three! You're basically a veteran at this point.",
@@ -396,7 +398,6 @@ class NightScene(Scene):
         self.cam_fx = CamGlitch()
         self.js_ghosts = {}
         self.js_bg = None
-        self.halluc_timer = random.uniform(40, 160)
         self.halluc = 0.0
         self.halluc_face = None
         self.itsme = None          # (cam, seconds left)
@@ -625,25 +626,25 @@ class NightScene(Scene):
             self.sounds.stop("voice", 250)
 
     def _update_hallucinations(self, dt):
-        """Rare flashes like the original's: faces, and 'IT'S ME' on the walls."""
         if self.halluc > 0:
             self.halluc -= dt
         if self.itsme:
             left = self.itsme[1] - dt
             self.itsme = (self.itsme[0], left) if left > 0 else None
-        if self.night < 2 or self.st.power_out:
+
+    def _hallucinate(self, kind, on_cams):
+        """Rare flashes like the original's: faces, and 'IT'S ME'."""
+        if self.st.power_out:
             return
-        self.halluc_timer -= dt
-        if self.halluc_timer > 0:
-            return
-        self.halluc_timer = random.uniform(70, 220)
-        if self.cam_anim >= 1:
-            if self.st.cam in ("2B", "4B", "1B", "4A"):
-                self.itsme = (self.st.cam, random.uniform(1.0, 3.0))
-        else:
+        if on_cams and self.cam_anim >= 1:
+            self.itsme = (self.st.cam, random.uniform(1.5, 3.0))
+        elif kind == "faces":
             self.halluc = random.uniform(0.06, 0.14)
             self.halluc_face = random.choice(["Golden", "Freddy", "Bonnie"])
             self.sounds.play("static_burst", 0.35)
+        else:
+            self.halluc = random.uniform(0.25, 0.45)
+            self.halluc_face = None
 
     def _update_input(self, dt):
         st = self.st
@@ -691,8 +692,11 @@ class NightScene(Scene):
         elif name == "laugh":
             pan, gain = ROOM_AUDIO.get(st.freddy.loc, (0.0, 0.5))
             self.sounds.play("laugh", 0.35 + 0.5 * gain, pan=pan * 0.8)
-        elif name == "enter_office":
-            self.sounds.play("groan", 0.25, pan=SIDE_PAN.get(data.get("side"), 0.0) * 0.5)
+        elif name == "breathing":
+            # Lifting the monitor with someone already in the room.
+            self.sounds.play("groan", 0.55, pan=SIDE_PAN["L" if data.get("who") == "Bonnie" else "R"] * 0.3)
+        elif name == "hallucination":
+            self._hallucinate(data.get("kind"), data.get("cams"))
         elif name == "foxy_run":
             self.sounds.play("run", 0.9 if (st.cams_up and st.cam == "2A") else 0.65, pan=-0.6)
         elif name == "foxy_bang":
@@ -747,13 +751,16 @@ class NightScene(Scene):
                 hud.draw_cam_bar(screen, hud.CAM_BAR.collidepoint(pygame.mouse.get_pos()))
             else:
                 hud.draw_clock(screen, st.hour_label, self.night)
-        if self.halluc > 0 and self.halluc_face and not cams_visible:
-            frames = self.assets.jumpscares.get(self.halluc_face)
+        if self.halluc > 0 and not cams_visible:
+            frames = self.assets.jumpscares.get(self.halluc_face) if self.halluc_face else None
             if frames:
                 img = frames[0].surface
                 jx, jy = random.randint(-30, 30), random.randint(-20, 20)
                 screen.blit(img, (SCREEN_W // 2 - frames[0].anchor[0] + jx, SCREEN_H // 2 - frames[0].anchor[1] + jy))
                 self.static(screen, 120)
+            elif random.random() < 0.8:
+                draw_text(screen, "IT'S ME", (SCREEN_W // 2 + random.randint(-4, 4), SCREEN_H // 2 - 80), 120,
+                          (225, 220, 215), anchor="center", alpha=random.randint(120, 200))
         self.draw_call(screen)
         if self.night == 1 and self.t < 24 and not st.power_out:
             a = int(255 * min(1.0, (self.t - 1.0) / 0.6, (24 - self.t) / 1.5)) if self.t > 1.0 else 0

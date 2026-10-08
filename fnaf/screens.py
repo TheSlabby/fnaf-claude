@@ -22,7 +22,7 @@ import pygame
 
 from . import characters
 from .settings import SCREEN_H, SCREEN_W
-from .util import Pen, clamp, lerp, lerp_color, make_light_mask, shade
+from .util import Pen, add_glows, clamp, lerp, lerp_color, make_light_mask, radial_sprite, shade
 
 W, H = SCREEN_W, SCREEN_H
 WHITE = (255, 255, 255)
@@ -896,8 +896,10 @@ def _check_card(kind, rng):
     _text(big, "MEMO", (30, 300), "sans", 12, CHECK_INK, bold=True, scale=S)
     pen.line(CHECK_INK, (76, 314), (400, 314), 1)
     memo = "Good job! Week 1" if kind == "week" else "Night 6"
-    hand = _font("hand", 30 * S, italic=True)
+    hand = _font("hand", 30 * S)
     img = hand.render(memo, True, PEN_BLUE)
+    if img.get_width() > 300 * S:
+        img = pygame.transform.smoothscale(img, (300 * S, int(img.get_height() * 300 * S / img.get_width())))
     img = pygame.transform.rotozoom(img, 2.5, 1.0)
     big.blit(img, img.get_rect(midbottom=(int(90 * S + img.get_width() / 2), int(318 * S))))
     # signature
@@ -912,14 +914,14 @@ def _check_card(kind, rng):
     return card
 
 
-def _sticky_note(lines, rng, size=(220, 168), color=(240, 222, 110)):
+def _sticky_note(lines, rng, size=(220, 168), color=(250, 232, 120)):
     w, h = size
     S = 2
     big = pygame.Surface((w * S, h * S))
     big.fill(color)
     pen = Pen(big, 0, 0, S)
     pen.vgrad(0, 0, w, 26, shade(color, 0.93), color)
-    hand = _font("hand", 30 * S, italic=True)
+    hand = _font("hand", 30 * S)
     y = 40
     for text, k in lines:
         img = hand.render(text, True, (36, 36, 60))
@@ -993,8 +995,8 @@ def _pink_slip(rng):
           anchor="bottomleft", scale=S)
     card = pygame.transform.smoothscale(big, (cw, ch))
     _multiply_noise(card, rng, [(60, 228), (2, 236)])
-    st = _stamp([("EFFECTIVE", 0.3), ("IMMEDIATELY", 0.3)], (176, 30, 40), (260, 104), rng, angle=9)
-    card.blit(st, st.get_rect(center=(cw - 176, 366)))
+    st = _stamp([("EFFECTIVE", 0.3), ("IMMEDIATELY", 0.3)], (176, 30, 40), (236, 94), rng, angle=8)
+    card.blit(st, st.get_rect(center=(cw - 158, 318)))
     return card
 
 
@@ -1026,7 +1028,7 @@ def _shift_log(rng):
     notes = ["quiet. phone message.", "footsteps, west hall", "kitchen noises (Chica?)",
              "someone in 2B?", "pirate cove curtain open", "power low. door shut.", "6 AM !!"]
     power = ["100%", "88%", "71%", "52%", "34%", "17%", "4%"]
-    hand = _font("hand", 21 * S, italic=True)
+    hand = _font("hand", 21 * S)
     for i, t in enumerate(times):
         y = ty + 26 + i * rh
         if i % 2:
@@ -1105,15 +1107,6 @@ def _human_eyes_supported():
         return False
 
 
-def _blob(pen, col, x, y, rx, ry, lo=0.55, hi=1.1, n=7, light=(-0.38, -0.55), outline=True):
-    """Soft shaded ellipse (like the character art's blobs)."""
-    if outline:
-        pen.ellipse(shade(col, 0.32), x, y, rx * 1.06, ry * 1.06)
-    for i in range(n):
-        t = i / (n - 1)
-        k = 0.6 * t
-        pen.ellipse(shade(col, lerp(lo, hi, t)), x + light[0] * rx * k, y + light[1] * ry * k,
-                    rx * (1 - k), ry * (1 - k))
 
 
 def _draw_human_eye(pen, x, y, r, rng, look=(0.0, 0.0)):
@@ -1126,7 +1119,7 @@ def _draw_human_eye(pen, x, y, r, rng, look=(0.0, 0.0)):
         a = rng.uniform(0, 2 * math.pi)
         p0 = (x + math.cos(a) * r * 0.92, y + math.sin(a) * r * 0.85)
         p1 = (x + math.cos(a + rng.uniform(-0.3, 0.3)) * r * 0.5, y + math.sin(a) * r * 0.45)
-        pen.line((170, 30, 30), p0, p1, max(0.6, r * 0.05))
+        pen.line((170, 30, 30), p0, p1, max(0.6 / pen.s, r * 0.05))
     ix, iy = x + look[0] * r * 0.3, y + look[1] * r * 0.3
     pen.circle((40, 26, 14), ix, iy, r * 0.46)
     pen.circle((110, 78, 38), ix, iy, r * 0.4)
@@ -1135,16 +1128,40 @@ def _draw_human_eye(pen, x, y, r, rng, look=(0.0, 0.0)):
     pen.circle((255, 250, 240), ix - r * 0.15, iy - r * 0.16, r * 0.09)
 
 
+def _bulges(suit, scale, origin, lumps):
+    """Shade lumps into the (1x, alpha) suit so it looks overstuffed.
+
+    Each lump gets a soft shadow on its lower-right and a highlight towards
+    the upper-left (the key light), independent of the colour underneath,
+    and the overlay is clipped to the suit's silhouette.
+    """
+    size = suit.get_size()
+    ox, oy = origin
+    keep = suit.copy()
+    keep.fill((255, 255, 255, 0), special_flags=pygame.BLEND_RGBA_MAX)
+    for col, layer in (((24, 12, 8), 0), ((255, 238, 214), 1)):
+        lay = pygame.Surface(size, pygame.SRCALPHA)
+        lay.fill(col + (0,))
+        pen = Pen(lay, ox, oy, scale)
+        for x, y, rx, ry in lumps:
+            if layer == 0:
+                pen.ellipse(col + (110,), x + rx * 0.3, y + ry * 0.38, rx * 0.86, ry * 0.8)
+            else:
+                pen.ellipse(col + (62,), x - rx * 0.24, y - ry * 0.3, rx * 0.62, ry * 0.56)
+        lay = _soften(lay, 0.2)
+        lay.blit(keep, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        suit.blit(lay, (0, 0))
+
+
 def _suit_sprite(scale, human):
     """The slumped Freddy suit (alpha surface at 1x, anchor = head centre).
 
-    Uses the Golden Freddy 'slump' pose with Freddy's colours when the
+    Uses the Golden Freddy 'slump' pose painted in Freddy's colours when the
     character module allows it; otherwise a standing Freddy.
     """
     eyes = "human" if human else "none"
-    mouth = 0.2
     pal = getattr(characters, "_PAL", None)
-    if isinstance(pal, dict) and "Freddy" in pal and "Golden" in pal:
+    if isinstance(pal, dict) and isinstance(pal.get("Freddy"), dict) and "Golden" in pal:
         name, pose, tilt = "Golden", "slump", 22.0
     else:
         name, pose, tilt = "Freddy", "stand", 0.0
@@ -1159,91 +1176,134 @@ def _suit_sprite(scale, human):
     saved = None
     if name == "Golden":
         saved = pal["Golden"]
-        pal["Golden"] = dict(pal["Freddy"], lid=0.08, grime=16)
+        pal["Golden"] = dict(pal["Freddy"], lid=0.06, grime=18)
     try:
-        characters.draw_character(pen, name, eyes=eyes, mouth=mouth, pose=pose, prop=False)
+        characters.draw_character(pen, name, eyes=eyes, mouth=0.2, pose=pose, prop=False)
     finally:
         if saved is not None:
             pal["Golden"] = saved
-    fur = (128, 78, 42)
-    belly = (192, 146, 94)
     if pose == "slump":
-        # lumps: something is packed in there that doesn't fit
-        for bx, by, rx, ry, col in ((-0.5, 1.75, 0.36, 0.3, fur), (0.62, 1.55, 0.32, 0.28, fur),
-                                    (0.42, 2.55, 0.34, 0.26, belly), (-0.2, 2.9, 0.4, 0.22, belly),
-                                    (0.05, 1.95, 0.24, 0.2, belly)):
-            _blob(pen, col, bx, by, rx, ry, lo=0.5, hi=1.04, n=8)
-        # strained seams
-        for pts in (((-0.85, 1.4), (-0.6, 1.62), (-0.3, 1.55)), ((0.3, 2.75), (0.55, 2.82), (0.78, 2.7))):
+        # seams straining over the stuffing, one split open
+        for pts in (((-0.98, 1.3), (-0.62, 1.12), (-0.25, 1.22)), ((0.25, 2.92), (0.58, 2.98), (0.9, 2.84))):
             for (ax, ay), (bx, by) in zip(pts, pts[1:]):
                 for i in range(5):
-                    t = i / 5
+                    t = (i + 0.5) / 5
                     px, py = lerp(ax, bx, t), lerp(ay, by, t)
-                    pen.line((40, 22, 14), (px - 0.03, py - 0.05), (px + 0.03, py + 0.05), 0.022)
-        # dark seepage at the split seam and at the collar
-        for sx, sy, ln in ((0.66, 2.78, 0.35), (-0.1, 1.1, 0.25), (0.3, 1.15, 0.4)):
-            pen.thick((52, 10, 10), (sx, sy), (sx + 0.02, sy + ln), 0.05)
-            pen.circle((52, 10, 10), sx + 0.02, sy + ln, 0.04)
+                    pen.line((34, 20, 12), (px - 0.035, py - 0.05), (px + 0.035, py + 0.05), 0.024)
+        pen.ellipse((26, 6, 6), 0.6, 2.97, 0.12, 0.035)
+        pen.ellipse((90, 30, 26), 0.6, 2.965, 0.07, 0.014)
+        for sx, sy, ln in ((0.6, 3.0, 0.22), (0.66, 2.99, 0.12)):
+            pen.thick((50, 10, 10), (sx, sy), (sx + 0.015, sy + ln), 0.035)
     if not human:
         # draw the eyeballs ourselves, into the (rotated) head's sockets
         a = math.radians(tilt)
         ca, sa = math.cos(a), math.sin(a)
         rng = random.Random(5)
         for sx in (-1, 1):
-            ex, ey = sx * 0.38, -0.2 + 0.02
-            px, py = ex * ca - ey * sa, ex * sa + ey * ca
-            _draw_human_eye(pen, px, py, 0.16, rng, look=(-0.2, 0.2))
+            ex, ey = sx * 0.38, -0.18
+            _draw_human_eye(pen, ex * ca - ey * sa, ex * sa + ey * ca, 0.16, rng, look=(-0.2, 0.2))
     surf = pygame.transform.smoothscale(big, (w, h))
-    return surf, (-x0 * scale, -y0 * scale)
+    anchor = (-x0 * scale, -y0 * scale)
+    if pose == "slump":
+        _bulges(surf, scale, anchor, [(-0.6, 1.5, 0.44, 0.36), (0.78, 1.42, 0.36, 0.32), (0.55, 2.62, 0.42, 0.3),
+                                      (-0.42, 2.82, 0.46, 0.28), (0.05, 2.02, 0.3, 0.26),
+                                      (-0.95, 2.25, 0.26, 0.34), (0.95, 3.12, 0.32, 0.22)])
+    return surf, anchor
+
+
+def _corner_shade(surf, center, size, strength):
+    """Darken around ``center`` with a soft radial falloff (0..1 strength)."""
+    w, h = int(size[0]), int(size[1])
+    spr = pygame.transform.smoothscale(radial_sprite(128, 0.8), (w, h))
+    lum = _tobytes(spr, "RGB")[0::3]
+    rgba = bytearray(4 * w * h)
+    rgba[3::4] = lum.translate(bytes(int(i * strength) for i in range(256)))
+    dark = _frombytes(bytes(rgba), (w, h), "RGBA")
+    surf.blit(dark, dark.get_rect(center=(int(center[0]), int(center[1]))))
+
+
+LAMP = (392, 92)
 
 
 def _backroom(pen, rng):
-    """Parts & Service: grubby wall, shelves of spare heads, checker floor (pen unit = 1 px)."""
-    wall, low = (68, 60, 70), (42, 36, 44)
-    horizon = 500
-    pen.vgrad(0, 0, W, horizon, shade(wall, 0.8), wall)
-    pen.rect(low, 0, 360, W, horizon - 360)
-    pen.rect(shade(low, 0.6), 0, 352, W, 9)
+    """Parts & Service: grubby wall, shelves of spare parts, checker floor (pen unit = 1 px)."""
+    wall, low = (72, 64, 74), (44, 38, 46)
+    horizon = 520
+    pen.vgrad(0, 0, W, horizon, shade(wall, 0.78), wall)
+    pen.rect(low, 0, 380, W, horizon - 380)
+    pen.rect(shade(low, 0.6), 0, 372, W, 9)
     # drips and stains on the wall
-    for _ in range(40):
+    for _ in range(46):
         x = rng.uniform(0, W)
-        y0 = rng.uniform(0, 300)
+        y0 = rng.uniform(40, 330)
         ln = rng.uniform(30, 220)
-        pen.rect(shade(wall, rng.uniform(0.72, 0.9)), x, y0, rng.uniform(1.5, 5), ln)
+        pen.rect(shade(wall, rng.uniform(0.7, 0.9)), x, y0, rng.uniform(1.5, 5), ln)
+    for _ in range(10):
+        pen.ellipse(shade(wall, rng.uniform(0.75, 0.9)), rng.uniform(0, W), rng.uniform(60, 340),
+                    rng.uniform(20, 70), rng.uniform(10, 40))
     # pipes along the ceiling
-    pen.rect((40, 38, 40), 0, 18, W, 14)
-    pen.rect((80, 76, 78), 0, 20, W, 4)
-    pen.rect((36, 34, 36), 0, 46, W, 8)
+    pen.rect((40, 38, 40), 0, 14, W, 16)
+    pen.rect((84, 80, 82), 0, 17, W, 4)
+    pen.rect((36, 34, 36), 0, 42, W, 9)
+    for x in (180, 520, 860, 1200):
+        pen.rect((28, 26, 28), x, 10, 10, 44)
     # checker floor in perspective
-    vx, vy = W * 0.46, 250
-    for row in range(14):
-        z0, z1 = 1.0 + row * 0.55, 1.0 + (row + 1) * 0.55
-        ya = horizon + (H + 140 - horizon) / z1 * 0.9
-        yb = horizon + (H + 140 - horizon) / z0 * 0.9
-        ya, yb = min(ya, H + 200), min(yb, H + 200)
-        for col in range(-16, 17):
+    vx = W * 0.46
+    for row in range(16):
+        z0, z1 = 1.0 + row * 0.5, 1.0 + (row + 1) * 0.5
+        ya = horizon + (H + 180 - horizon) / z1 * 0.85
+        yb = horizon + (H + 180 - horizon) / z0 * 0.85
+        for col in range(-18, 19):
             xa0 = vx + (col * 120) / z1 * 1.4
             xa1 = vx + ((col + 1) * 120) / z1 * 1.4
             xb0 = vx + (col * 120) / z0 * 1.4
             xb1 = vx + ((col + 1) * 120) / z0 * 1.4
             c = (176, 172, 160) if (row + col) % 2 else (22, 22, 24)
             pen.poly(c, [(xa0, ya), (xa1, ya), (xb1, yb), (xb0, yb)])
-    pen.rect((20, 18, 22), 0, horizon - 4, W, 6)
+    pen.rect((20, 18, 22), 0, horizon - 4, W, 7)
     # shelves (left) with brackets
-    for sy in (172, 312):
-        pen.rect((86, 64, 44), 20, sy, 430, 12)
-        pen.rect((52, 38, 26), 20, sy + 12, 430, 6)
-        for bx in (50, 230, 410):
+    for sy in (176, 318):
+        pen.rect((90, 68, 46), 14, sy, 300, 12)
+        pen.rect((54, 40, 28), 14, sy + 12, 300, 6)
+        for bx in (36, 170, 290):
             pen.poly((44, 34, 26), [(bx, sy + 18), (bx + 8, sy + 18), (bx + 8, sy + 60)])
-    # boxes stacked on the right wall, a hanging cord
-    for bx, by, bw, bh, c in ((930, 360, 150, 140, (110, 82, 54)), (1090, 330, 170, 170, (96, 72, 48)),
-                              (960, 250, 120, 110, (120, 92, 60))):
+    # boxes stacked against the right wall
+    for bx, by, bw, bh, c in ((935, 384, 150, 136, (110, 82, 54)), (1096, 350, 172, 170, (96, 72, 48)),
+                              (962, 280, 122, 104, (120, 92, 60))):
         pen.rect(c, bx, by, bw, bh)
         pen.rect(shade(c, 0.7), bx, by, bw, 10)
         pen.rect(shade(c, 1.15), bx + bw * 0.42, by, bw * 0.16, bh)
-    pen.line((20, 20, 20), (720, 0), (722, 92), 2)
-    pen.poly((54, 58, 54), [(704, 92), (740, 92), (762, 124), (682, 124)])
-    pen.ellipse((150, 140, 110), 722, 124, 38, 7)
+        pen.rect(shade(c, 0.55), bx, by + bh - 4, bw, 4)
+    pen.text("PARTS", 1182, 440, 22, (52, 36, 24))
+    # the work lamp hanging over the suit
+    lx, ly = LAMP
+    pen.line((18, 18, 18), (lx, 0), (lx, ly - 30), 2.5)
+    pen.poly((50, 56, 50), [(lx - 16, ly - 32), (lx + 16, ly - 32), (lx + 40, ly), (lx - 40, ly)])
+    pen.poly((84, 92, 84), [(lx - 12, ly - 32), (lx - 2, ly - 32), (lx - 22, ly), (lx - 34, ly)])
+    pen.ellipse((255, 240, 200), lx, ly, 34, 6)
+
+
+def _place_parts(big, rng, S):
+    """Spare heads on the shelves and on the boxes (drawn into the SS canvas)."""
+    def head(name, hx, base_y, sc, eyes="none", rot=0.0):
+        spr = characters.render_character(name, int(sc * S), ss=1, body=False, eyes=eyes, prop=False)
+        ax, ay = spr.anchor
+        cut = int(min(spr.surface.get_height(), ay + 1.08 * sc * S))
+        img = spr.surface.subsurface((0, 0, spr.surface.get_width(), cut))
+        cx, cy = hx * S, (base_y - 1.08 * sc) * S
+        if rot:
+            w0, h0 = img.get_size()
+            img = pygame.transform.rotozoom(img, rot, 1.0)
+            a = math.radians(rot)
+            dx, dy = ax - w0 / 2, ay - h0 / 2
+            ax = img.get_width() / 2 + dx * math.cos(a) + dy * math.sin(a)
+            ay = img.get_height() / 2 - dx * math.sin(a) + dy * math.cos(a)
+        big.blit(img, (int(cx - ax), int(cy - ay)))
+
+    head("Bonnie", 70, 178, 44)
+    head("Endo", 168, 178, 42)
+    head("Chica", 76, 320, 44)
+    head("Endo", 1022, 282, 40, rot=-12)
 
 
 def game_over():
@@ -1258,46 +1318,43 @@ def game_over():
     big.fill((30, 26, 32))
     pen = Pen(big, 0, 0, S)
     _backroom(pen, rng)
-    # spare heads on the shelves
-    heads = [("Bonnie", 92, 172), ("Endo", 200, 172), ("Chica", 322, 172), ("Freddy", 110, 312),
-             ("Endo", 300, 312)]
-    for name, hx, sy in heads:
-        sc = 46
-        spr = characters.render_character(name, sc * S, ss=1, body=False, eyes="none", prop=False)
-        ax, ay = spr.anchor
-        crop = pygame.Rect(0, 0, spr.surface.get_width(), int(min(spr.surface.get_height(), ay + 1.08 * sc * S)))
-        img = spr.surface.subsurface(crop)
-        big.blit(img, (int(hx * S - ax), int((sy - 1.08 * sc) * S - ay + 2 * S)))
-    # an endo arm and a loose hand on the lower shelf
-    pen.thick((120, 120, 128), (380, 300), (444, 286), 7)
-    pen.circle((150, 150, 160), 380, 300, 7)
+    _place_parts(big, rng, S)
+    # a loose endo arm on the lower shelf
+    pen.thick((60, 60, 66), (196, 314), (300, 296), 9)
+    pen.thick((126, 126, 134), (196, 312), (300, 294), 6)
+    pen.circle((150, 150, 160), 196, 312, 7)
+    for k in range(4):
+        pen.line((126, 126, 134), (300, 294), (316 + k * 2, 284 + k * 6), 2)
     room = pygame.transform.smoothscale(big, (W, H))
-    _multiply_noise(room, rng, [(110, 160), (30, 190), (6, 215), (2, 225)])
-    # the suit, slumped against the wall
-    suit, (ax, ay) = _suit_sprite(122, human)
-    hx, hy = 548, 238
-    # contact shadow
-    sh = pygame.Surface((560, 120), pygame.SRCALPHA)
-    sh.fill((0, 0, 0, 0))
-    pygame.draw.ellipse(sh, (0, 0, 0, 170), (40, 20, 480, 80))
-    sh = _soften(sh, 0.15)
-    room.blit(sh, (hx - 260, hy + 380))
-    room.blit(suit, (int(hx - ax), int(hy - ay)))
-    # light: one weak bulb over the suit, everything else falls into murk
-    _light(room, (16, 15, 18), [(hx + 20, hy + 40, 520, 470, (196, 182, 160)),
-                                (722, 140, 240, 160, (70, 64, 52)),
-                                (200, 240, 300, 220, (46, 44, 48))])
-    # murky, half-desaturated, greenish-brown tint
-    lum = _luma(room)
-    grey = _grey_surface(lum, (W, H))
-    grey.set_alpha(120)
+    _multiply_noise(room, rng, [(110, 168), (30, 196), (6, 218), (2, 226)])
+    # the suit, slumped against the wall, and its shadow on the wall
+    suit, (ax, ay) = _suit_sprite(138, human)
+    hx, hy = 534, 290
+    pos = (int(hx - ax), int(hy - ay))
+    shadow = suit.copy()
+    shadow.fill((0, 0, 0, 255), special_flags=pygame.BLEND_RGBA_MIN)
+    shadow.fill((255, 255, 255, 150), special_flags=pygame.BLEND_RGBA_MULT)
+    shadow = _soften(shadow, 0.08)
+    room.blit(shadow, (pos[0] + 44, pos[1] + 16))
+    room.blit(suit, pos)
+    # light: a weak work lamp above, everything else falls into murk
+    lx, ly = LAMP
+    _light(room, (26, 25, 28), [(hx - 10, hy - 20, 580, 540, (238, 224, 198)),
+                                (lx, ly + 30, 260, 190, (120, 110, 88)),
+                                (150, 250, 260, 220, (70, 68, 72)),
+                                (1050, 330, 280, 220, (50, 48, 48))])
+    # murky, half-desaturated, greenish-brown cast
+    grey = _grey_surface(_luma(room), (W, H))
+    grey.set_alpha(110)
     room.blit(grey, (0, 0))
-    room.fill((236, 230, 206), special_flags=pygame.BLEND_RGB_MULT)
-    # vignette, deep in the bottom-right where the caption goes
-    vig = make_light_mask(W // 4, H // 4, (30, 30, 30), [(W / 8 * 0.86, H / 8 * 0.86, W / 4 * 0.62, H / 4 * 0.75,
-                                                          (230, 230, 230))])
+    room.fill((228, 230, 206), special_flags=pygame.BLEND_RGB_MULT)
+    # vignette, deepest in the bottom-right corner where the caption goes
+    vig = make_light_mask(W // 4, H // 4, (64, 64, 64),
+                          [(560 / 4, 320 / 4, 900 / 4, 620 / 4, (200, 200, 200))])
     vig = pygame.transform.smoothscale(vig, (W, H))
     room.blit(vig, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
-    room.fill((6, 6, 7), special_flags=pygame.BLEND_RGB_ADD)
-    _grain(room, rng, 200)
+    _corner_shade(room, (W + 40, H + 30), (1100, 640), 0.82)
+    add_glows(room, [(lx, ly + 2, 46, (90, 80, 56)), (lx, ly + 2, 16, (120, 110, 80))])
+    room.fill((5, 5, 6), special_flags=pygame.BLEND_RGB_ADD)
+    _grain(room, rng, 206)
     return _finish(room)
